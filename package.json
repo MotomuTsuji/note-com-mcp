@@ -1,0 +1,30 @@
+{
+  "name": "note-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for interacting with note.com API",
+  "type": "module",
+  "main": "build/note-mcp-server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/note-mcp-server.js",
+    "start:refactored": "node build/note-mcp-server-refactored.js",
+    "start:http": "node build/note-mcp-server-http.js",
+    "dev": "npm run build && npm run start",
+    "dev:refactored": "npm run build && npm run start:refactored",
+    "dev:http": "npm run build && npm run start:http",
+    "dev:watch": "tsc --watch",
+    "dev:ts": "node --loader ts-node/esm --experimental-specifier-resolution=node --project tsconfig-dev.json src/note-mcp-server-refactored.ts",
+    "dev:http:ts": "node --loader ts-node/esm --experimental-specifier-resolution=node --project tsconfig-dev.json src/note-mcp-server-http.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.7.0",
+    "dotenv": "^16.3.1",
+    "node-fetch": "^3.3.2",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.4",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.3.3"
+  }
+}
