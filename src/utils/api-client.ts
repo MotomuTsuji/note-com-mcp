@@ -52,7 +52,12 @@ export async function noteApiRequest(
   };
 
   if (body && (method === "POST" || method === "PUT")) {
-    options.body = JSON.stringify(body);
+    // Bufferの場合はそのまま送信、それ以外はJSON化
+    if (Buffer.isBuffer(body)) {
+      options.body = body;
+    } else {
+      options.body = JSON.stringify(body);
+    }
   }
 
   try {
@@ -77,7 +82,7 @@ export async function noteApiRequest(
       if (env.DEBUG) {
         console.error(`API error on endpoint ${endpoint}: ${response.status} ${response.statusText}`);
         console.error(`API error response body: ${errorText}`);
-        
+
         // エンドポイントのバージョンをチェック
         if (endpoint.includes("/v1/") || endpoint.includes("/v3/")) {
           console.error(`Note: This endpoint uses API version ${endpoint.includes("/v1/") ? "v1" : "v3"}. Consider trying v2 version if available.`);

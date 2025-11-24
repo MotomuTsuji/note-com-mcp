@@ -31,10 +31,20 @@ test-*.md
 # 個人的な開発記録（公開しない）
 docs/DRAFT_CREATION_SUCCESS_STORY.md
 
-# 個人的な設定ファイル（ユーザー名を含む）
+# 完全開発ガイド（個人情報や具体的な実装詳細を含むため）
+docs/NOTE_MCP_DEVELOPMENT_COMPLETE_GUIDE.md
+
+
+
+
+# 個人的な設定ファイル（ユーザー名、パス、Webhook URL等の個人情報を含む）
 scripts/cloudflare-tunnel.service
 scripts/monitor-services.sh
 scripts/setup-cloudflare-tunnel.sh
+scripts/manage-services.sh
+
+# MCP設定ファイル（個人情報含む）
+private.mcp.json
 
 # クライアントコード（開発中）
 client/

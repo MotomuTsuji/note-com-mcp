@@ -6,6 +6,9 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// Markdown converter utility
+import { convertMarkdownToNoteHtml } from "./utils/markdown-converter.js";
+
 // ESMでの__dirnameの代替
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -306,34 +309,34 @@ async function loginToNote(): Promise<boolean> {
     if (setCookieHeader) {
       if (DEBUG) console.error("Set-Cookie header:", setCookieHeader);
       const cookies = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
-      
+
       cookies.forEach(cookieStr => {
         if (cookieStr.includes("_note_session_v5=")) {
           activeSessionCookie = cookieStr.split(';')[0];
           if (DEBUG) console.error("Session cookie set:", activeSessionCookie);
         }
-        if (cookieStr.includes("XSRF-TOKEN=")) { 
+        if (cookieStr.includes("XSRF-TOKEN=")) {
           activeXsrfToken = cookieStr.split(';')[0].split('=')[1];
           if (DEBUG) console.error("XSRF token from cookie:", activeXsrfToken);
         }
       });
-      
+
       const responseXsrfToken = response.headers.get("x-xsrf-token");
       if (responseXsrfToken) {
-          activeXsrfToken = responseXsrfToken;
-          if (DEBUG) console.error("XSRF Token from header:", activeXsrfToken);
+        activeXsrfToken = responseXsrfToken;
+        if (DEBUG) console.error("XSRF Token from header:", activeXsrfToken);
       } else if (DEBUG && !activeXsrfToken) {
-          console.error("XSRF Token not found in initial login headers.");
+        console.error("XSRF Token not found in initial login headers.");
       }
     }
-    
+
     if (!activeSessionCookie) {
       console.error("Login succeeded but session cookie was not found.");
       return false;
     }
-    
+
     console.error("Login successful. Session cookie obtained.");
-    
+
     // セッションクッキーが取得できたら、current_userリクエストでXSRFトークンを取得する
     if (activeSessionCookie && !activeXsrfToken) {
       console.error("Trying to obtain XSRF token from current_user API...");
@@ -346,7 +349,7 @@ async function loginToNote(): Promise<boolean> {
             "Cookie": activeSessionCookie
           },
         });
-        
+
         // XSRFトークンをヘッダーから取得
         const xsrfToken = currentUserResponse.headers.get("x-xsrf-token");
         if (xsrfToken) {
@@ -359,14 +362,14 @@ async function loginToNote(): Promise<boolean> {
           if (currentUserSetCookie) {
             const cookies = Array.isArray(currentUserSetCookie) ? currentUserSetCookie : [currentUserSetCookie];
             cookies.forEach(cookieStr => {
-              if (cookieStr.includes("XSRF-TOKEN=")) { 
+              if (cookieStr.includes("XSRF-TOKEN=")) {
                 activeXsrfToken = cookieStr.split(';')[0].split('=')[1];
                 console.error("XSRF token found in current_user response cookies.");
                 if (DEBUG) console.error("XSRF Token from cookie:", activeXsrfToken);
               }
             });
           }
-          
+
           if (!activeXsrfToken) {
             console.error("Could not obtain XSRF token from current_user API.");
           }
@@ -375,7 +378,7 @@ async function loginToNote(): Promise<boolean> {
         console.error("Error fetching current_user for XSRF token:", error);
       }
     }
-    
+
     return activeSessionCookie !== null;
   } catch (error) {
     console.error("Error during login:", error);
@@ -461,7 +464,7 @@ async function noteApiRequest(path: string, method: string = "GET", body: any = 
       if (DEBUG) {
         console.error(`API error on path ${path}: ${response.status} ${response.statusText}`);
         console.error(`API error response body: ${errorText}`);
-        
+
         // エンドポイントのバージョンをチェック
         if (path.includes("/v1/") || path.includes("/v3/")) {
           console.error(`Note: This endpoint uses API version ${path.includes("/v1/") ? "v1" : "v3"}. Consider trying v2 version if available.`);
@@ -644,17 +647,17 @@ server.tool(
         start: start.toString(),
         sort: sort
       });
-      
+
       // カテゴリが指定されていれば追加
       if (category) {
         params.append("category", category);
       }
-      
+
       // 日付範囲が指定されていれば追加
       if (dateRange) {
         params.append("date_range", dateRange);
       }
-      
+
       // 価格フィルターの追加
       if (priceRange !== "all") {
         params.append("price", priceRange);
@@ -662,7 +665,7 @@ server.tool(
 
       // APIリクエストを実行
       const data = await noteApiRequest(`/v3/searches?context=note&${params.toString()}`);
-      
+
       if (DEBUG) {
         console.error(`API Response structure for analyze-notes: ${JSON.stringify(data, null, 2)}`);
       }
@@ -697,7 +700,7 @@ server.tool(
         let formattedNotes = [];
         let notesArray = [];
         let totalCount = 0;
-        
+
         // v3: data.data.notes may contain contents and total_count
         if (data.data.notes && Array.isArray((data.data.notes as any).contents)) {
           notesArray = (data.data.notes as any).contents;
@@ -714,19 +717,19 @@ server.tool(
         } else {
           console.error(`Unexpected search data keys: ${Object.keys(data.data)}`);
         }
-        
+
         // 記事を詳細に分析してフォーマット
         formattedNotes = notesArray.map((note: any) => {
           // ユーザー情報の抽出と整形
           const user = note.user || {};
-          
+
           // コンテンツ分析用データの整形
           const hasEyecatch = Boolean(note.eyecatch || note.sp_eyecatch);
           const imageCount = note.image_count || (note.pictures ? note.pictures.length : 0);
           const price = note.price || 0;
           const isPaid = price > 0;
           const publishDate = note.publish_at ? new Date(note.publish_at) : null;
-          
+
           // 基本情報の整形
           return {
             // 記事基本情報
@@ -819,8 +822,8 @@ server.tool(
           priceAnalysis: {
             free: formattedNotes.filter((note: any) => !note.isPaid).length,
             paid: formattedNotes.filter((note: any) => note.isPaid).length,
-            averagePrice: formattedNotes.filter((note: any) => note.isPaid).reduce((sum: number, note: any) => sum + note.price, 0) / 
-                          formattedNotes.filter((note: any) => note.isPaid).length || 0,
+            averagePrice: formattedNotes.filter((note: any) => note.isPaid).reduce((sum: number, note: any) => sum + note.price, 0) /
+              formattedNotes.filter((note: any) => note.isPaid).length || 0,
             maxPrice: Math.max(...formattedNotes.map((note: any) => note.price)),
             minPrice: Math.min(...formattedNotes.filter((note: any) => note.isPaid).map((note: any) => note.price)) || 0
           },
@@ -831,7 +834,7 @@ server.tool(
             maxFollowers: Math.max(...formattedNotes.map((note: any) => note.author.details?.followerCount || 0)),
             officialAccounts: formattedNotes.filter((note: any) => note.author.details?.isOfficial).length,
             withTwitterConnection: formattedNotes.filter((note: any) => note.author.details?.twitterConnected).length,
-            withCustomEngagement: formattedNotes.filter((note: any) => 
+            withCustomEngagement: formattedNotes.filter((note: any) =>
               note.author.details?.hasLikeAppeal || note.author.details?.hasFollowAppeal).length
           } : null
         };
@@ -887,10 +890,10 @@ server.tool(
         draft_reedit: "false",
         ts: Date.now().toString()
       });
-      
+
       // APIのバージョンをv3に戻し、下書きパラメータを追加
       const data = await noteApiRequest(
-        `/v3/notes/${noteId}?${params.toString()}`, 
+        `/v3/notes/${noteId}?${params.toString()}`,
         "GET",
         null,
         true // 認証必須
@@ -1004,12 +1007,12 @@ server.tool(
 
       // 結果を見やすく整形
       const userData = data.data || {};
-      
+
       // デバッグモードの場合はレスポンス全体をログに出力
       if (DEBUG) {
         console.error(`User API Response: ${JSON.stringify(data, null, 2)}`);
       }
-      
+
       // APIレスポンスの中で、フォロワー数のプロパティ名は followerCount (単数形) を使用
       const formattedUser: FormattedUser = {
         id: userData.id || "",
@@ -1149,7 +1152,7 @@ server.tool(
 // 7. 記事投稿ツール（下書き保存）
 server.tool(
   "post-draft-note",
-  "下書き状態の記事を投稿する",
+  "下書き状態の記事を投稿する（Markdown形式の本文を自動でHTMLに変換）",
   {
     title: z.string().describe("記事のタイトル"),
     body: z.string().describe("記事の本文"),
@@ -1171,6 +1174,11 @@ server.tool(
         };
       }
 
+      // MarkdownをHTMLに変換
+      console.error("🔄 MarkdownをHTMLに変換中...");
+      const htmlBody = convertMarkdownToNoteHtml(body || "");
+      console.error("✅ HTML変換完了:", { originalLength: body?.length, htmlLength: htmlBody.length });
+
       // リクエスト内容をログに出力
       console.error("下書き保存リクエスト内容:");
 
@@ -1180,7 +1188,7 @@ server.tool(
         // v3のAPI形式に合わせて修正
         const postData1 = {
           title: title,           // タイトル
-          body: body,            // 本文
+          body: htmlBody,         // HTML変換済み本文
           status: "draft",       // 下書きステータス
           tags: tags || [],      // タグ配列
           publish_at: null,      // 公開日時（下書きはヌル）
@@ -1225,7 +1233,7 @@ server.tool(
           console.error("試行2: 旧APIエンドポイント");
           const postData2 = {
             title,
-            body,
+            body: htmlBody,  // HTML変換済み本文
             tags: tags || [],
           };
 
@@ -1837,7 +1845,7 @@ server.prompt(
 async function main() {
   try {
     console.error("Starting note API MCP Server...");
-    
+
     // メールアドレスとパスワードが設定されていれば自動ログインを試行
     if (NOTE_EMAIL && NOTE_PASSWORD) {
       console.error("メールアドレスとパスワードからログイン試行中...");
@@ -1848,7 +1856,7 @@ async function main() {
         console.error("ログイン失敗: メールアドレスまたはパスワードが正しくない可能性があります。");
       }
     }
-    
+
     // STDIOトランスポートを作成して接続
     const transport = new StdioServerTransport();
     await server.connect(transport);
@@ -1953,13 +1961,13 @@ server.tool(
         memberCount: 100,
         notesCount: 30
       };
-      
+
       // 記事のダミーデータを生成
       const dummyNotes = [];
       const startIndex = (page - 1) * perPage;
       const endIndex = startIndex + perPage;
       const totalNotes = 30; // 全体の記事数
-      
+
       for (let i = startIndex; i < Math.min(endIndex, totalNotes); i++) {
         dummyNotes.push({
           id: `note-${i + 1}`,
@@ -2027,14 +2035,14 @@ server.tool(
             if (!Array.isArray(data.data) && typeof data.data === 'object') {
               // オブジェクトの場合、全てのキーを確認
               console.error(`Data keys: ${Object.keys(data.data).join(', ')}`);
-              
+
               // summariesプロパティがある場合
               if (data.data.summaries) {
                 console.error(`Has summaries property: ${data.data.hasOwnProperty('summaries')}`);
                 console.error(`Summaries type: ${typeof data.data.summaries}`);
                 console.error(`Summaries is array: ${Array.isArray(data.data.summaries)}`);
                 console.error(`Summaries length: ${Array.isArray(data.data.summaries) ? data.data.summaries.length : 'N/A'}`);
-                
+
                 // 配列の場合、最初の要素を確認
                 if (Array.isArray(data.data.summaries) && data.data.summaries.length > 0) {
                   console.error(`First summary item: ${JSON.stringify(data.data.summaries[0], null, 2)}`);
@@ -2050,14 +2058,14 @@ server.tool(
       // 実際のAPIレスポンスからデータを抽出し、正しくフォーマットする
       let formattedSummaries: MembershipSummary[] = [];
       let rawSummaries: any[] = [];
-      
+
       // 実際のAPIレスポンスの構造に合わせてデータ抽出ロジックを修正
       if (data.data) {
         // APIが配列を直接返す場合
         if (Array.isArray(data.data)) {
           if (DEBUG) console.error("Processing direct array data");
           rawSummaries = data.data;
-        } 
+        }
         // summariesプロパティがある場合
         else if (data.data.summaries && Array.isArray(data.data.summaries)) {
           if (DEBUG) console.error("Processing data.data.summaries");
@@ -2092,11 +2100,11 @@ server.tool(
       }
 
       if (DEBUG) console.error(`Raw summaries found: ${rawSummaries.length} items`);
-      
+
       // MCPサーバーのフィルタリングを回避するための工夫
       // 実際のデータを文字列化して送信
       const apiDataRaw = JSON.stringify(data);
-      
+
       // 生のデータを使ってマッピング
       if (rawSummaries.length > 0) {
         if (DEBUG) console.error(`First raw summary: ${JSON.stringify(rawSummaries[0], null, 2)}`);
@@ -2104,26 +2112,26 @@ server.tool(
           // 実際のAPIレスポンスではcircleプロパティにデータが入っている
           const circle = summary.circle || {};
           const owner = circle.owner || {};
-          
+
           // 各フィールドの存在確認と取得を先に行う
           let id = "", key = "", name = "", urlname = "", price = 0;
           let creator: any = {};
-          
+
           // idの確認 - circleプロパティから取得
           id = circle.id || summary.id || "";
-          
+
           // keyの確認 - circleプロパティから取得
           key = circle.key || summary.key || "";
-          
+
           // nameの確認 - circleプロパティから取得
           name = circle.name || summary.name || "";
-          
+
           // urlnameの確認
           urlname = circle.urlname || owner.urlname || "";
-          
+
           // priceの確認 - 実際のAPIレスポンスには価格情報が含まれていない場合もある
           price = circle.price || summary.price || 0;
-          
+
           // creator情報の確認 - ownerプロパティから取得
           creator = {
             id: owner.id || "",
@@ -2131,7 +2139,7 @@ server.tool(
             urlname: owner.urlname || "",
             profileImageUrl: owner.userProfileImagePath || ""
           };
-          
+
           // circlePlansの情報も抽出
           const plans = summary.circlePlans || [];
           const planNames = plans.map((plan: any) => plan.name || "").filter((name: string) => name);
@@ -2208,14 +2216,14 @@ server.tool(
             if (!Array.isArray(data.data) && typeof data.data === 'object') {
               // オブジェクトの場合、全てのキーを確認
               console.error(`Data keys: ${Object.keys(data.data).join(', ')}`);
-              
+
               // plansプロパティがある場合
               if (data.data.plans) {
                 console.error(`Has plans property: ${data.data.hasOwnProperty('plans')}`);
                 console.error(`Plans type: ${typeof data.data.plans}`);
                 console.error(`Plans is array: ${Array.isArray(data.data.plans)}`);
                 console.error(`Plans length: ${Array.isArray(data.data.plans) ? data.data.plans.length : 'N/A'}`);
-                
+
                 // 配列の場合、最初の要素を確認
                 if (Array.isArray(data.data.plans) && data.data.plans.length > 0) {
                   console.error(`First plan item: ${JSON.stringify(data.data.plans[0], null, 2)}`);
@@ -2231,14 +2239,14 @@ server.tool(
       // 実際のAPIレスポンスからデータを抽出し、正しくフォーマットする
       let formattedPlans: MembershipPlan[] = [];
       let rawPlans: any[] = [];
-      
+
       // 実際のAPIレスポンスの構造に合わせてデータ抽出ロジックを修正
       if (data.data) {
         // APIが配列を直接返す場合
         if (Array.isArray(data.data)) {
           if (DEBUG) console.error("Processing direct array data");
           rawPlans = data.data;
-        } 
+        }
         // plansプロパティがある場合
         else if (data.data.plans && Array.isArray(data.data.plans)) {
           if (DEBUG) console.error("Processing data.data.plans");
@@ -2269,7 +2277,7 @@ server.tool(
       }
 
       if (DEBUG) console.error(`Raw plans found: ${rawPlans.length} items`);
-      
+
       // 生のデータを使ってマッピング
       if (rawPlans.length > 0) {
         if (DEBUG) console.error(`First raw plan: ${JSON.stringify(rawPlans[0], null, 2)}`);
@@ -2278,39 +2286,39 @@ server.tool(
           const circle = plan.circle || {};
           const circlePlans = plan.circlePlans || [];
           const owner = circle.owner || {};
-          
+
           // 各フィールドの存在確認と取得
           let id = "", key = "", name = "", description = "", status = "";
           let price = 0, memberCount = 0, notesCount = 0;
-          
+
           // idの確認 - circleプロパティから取得
           id = circle.id || plan.id || "";
-          
+
           // keyの確認 - circleプロパティから取得
           key = circle.key || plan.key || "";
-          
+
           // nameの確認 - circlePlansから取得するか、circleから取得
           if (circlePlans && circlePlans.length > 0) {
             name = circlePlans[0].name || "";
           } else {
             name = circle.name || plan.name || "";
           }
-          
+
           // descriptionの確認
           description = circle.description || plan.description || "";
-          
+
           // priceの確認 - 実際のAPIレスポンスには直接含まれていない場合もある
           price = plan.price || circle.price || 0;
-          
+
           // memberCountの確認
           memberCount = circle.subscriptionCount || circle.membershipNumber || 0;
-          
+
           // notesCountの確認 - APIレスポンスに含まれていない場合は0
           notesCount = plan.notesCount || 0;
-          
+
           // statusの確認
           status = circle.isCirclePublished ? "active" : "inactive";
-          
+
           return {
             id: id,
             key: key,
@@ -2323,13 +2331,13 @@ server.tool(
             ownerName: owner.nickname || owner.name || "",
             headerImagePath: plan.headerImagePath || circle.headerImagePath || "",
             plans: circlePlans.map((p: any) => p.name || "").filter((n: string) => n),
-            url: owner.customDomain ? 
-              `https://${owner.customDomain.host}/membership` : 
+            url: owner.customDomain ?
+              `https://${owner.customDomain.host}/membership` :
               `https://note.com/${owner.urlname || ""}/membership`
           };
         });
       }
-      
+
       if (DEBUG) {
         console.error(`Formatted plans: ${formattedPlans.length} items`);
         if (formattedPlans.length > 0) {
@@ -2377,10 +2385,10 @@ server.tool(
       if (DEBUG) {
         console.error(`\nCircle Info API Response:\n${JSON.stringify(data, null, 2)}`);
       }
-      
+
       // 実際のレスポンス構造を確認して整形したデータを返す
       const circleData = data.data || {};
-      
+
       // 必要なプロパティが存在するか確認し、適切なデフォルト値を設定
       const formattedCircleInfo = {
         id: circleData.id || "",
@@ -2433,7 +2441,7 @@ server.tool(
       if (DEBUG) {
         console.error(`Getting membership notes for membershipKey: ${membershipKey}, page: ${page}, perPage: ${perPage}`);
       }
-      
+
       // v3のメンバーシップ記事一覧取得APIを使用
       const data = await noteApiRequest(`/v3/memberships/${membershipKey}/notes?page=${page}&per=${perPage}`, "GET", null, true);
 
@@ -2449,19 +2457,19 @@ server.tool(
             console.error(`Is array: ${Array.isArray(data.data)}`);
             if (!Array.isArray(data.data) && typeof data.data === 'object') {
               console.error(`Data keys: ${Object.keys(data.data).join(', ')}`);
-              
+
               // notesプロパティの確認
               if (data.data.notes) {
                 console.error(`Notes is array: ${Array.isArray(data.data.notes)}`);
                 console.error(`Notes length: ${Array.isArray(data.data.notes) ? data.data.notes.length : 'N/A'}`);
               }
-              
+
               // itemsプロパティの確認
               if (data.data.items) {
                 console.error(`Items is array: ${Array.isArray(data.data.items)}`);
                 console.error(`Items length: ${Array.isArray(data.data.items) ? data.data.items.length : 'N/A'}`);
               }
-              
+
               // membership情報の確認
               if (data.data.membership) {
                 console.error(`Has membership info: ${typeof data.data.membership}`);
@@ -2476,7 +2484,7 @@ server.tool(
       let formattedNotes: FormattedMembershipNote[] = [];
       let totalCount = 0;
       let membershipInfo: any = {};
-      
+
       // 実際のAPIレスポンスの構造に合わせてデータ抽出ロジックを修正
       if (data.data) {
         // notesプロパティがある場合
@@ -2492,7 +2500,7 @@ server.tool(
             url: note.url || (note.user ? `https://note.com/${note.user.urlname}/n/${note.key || ''}` : ''),
             isMembersOnly: note.is_members_only || note.isMembersOnly || true
           }));
-          
+
           totalCount = data.data.totalCount || data.data.total_count || data.data.total || formattedNotes.length;
           membershipInfo = data.data.membership || data.data.circle || {};
         }
@@ -2509,7 +2517,7 @@ server.tool(
             url: note.url || (note.user ? `https://note.com/${note.user.urlname}/n/${note.key || ''}` : ''),
             isMembersOnly: note.is_members_only || note.isMembersOnly || true
           }));
-          
+
           totalCount = data.data.totalCount || data.data.total_count || data.data.total || formattedNotes.length;
           membershipInfo = data.data.membership || data.data.circle || {};
         }
@@ -2526,7 +2534,7 @@ server.tool(
             url: note.url || (note.user ? `https://note.com/${note.user.urlname}/n/${note.key || ''}` : ''),
             isMembersOnly: note.is_members_only || note.isMembersOnly || true
           }));
-          
+
           totalCount = formattedNotes.length;
         }
       }
@@ -2632,11 +2640,11 @@ server.tool(
             const isDraft = note.status === "draft";
             const noteKey = note.key || "";
             const noteId = note.id || "";
-            
+
             // 下書き記事のタイトルと本文は noteDraft プロパティにある場合がある
             const draftTitle = note.noteDraft?.name || "";
             const title = note.name || draftTitle || "(無題)";
-            
+
             // 本文プレビューの取得
             let excerpt = "";
             if (note.body) {
@@ -2651,10 +2659,10 @@ server.tool(
                 : "";
               excerpt = textContent.length > 100 ? textContent.substring(0, 100) + '...' : textContent;
             }
-            
+
             // 日付情報の取得
             const publishedAt = note.publishAt || note.publish_at || note.displayDate || note.createdAt || '日付不明';
-            
+
             return {
               id: noteId,
               key: noteKey,
@@ -2843,7 +2851,7 @@ server.tool(
         if (data.data.notes) {
           // notesの型を確認して処理
           let notesArray: any[] = [];
-          
+
           if (Array.isArray(data.data.notes)) {
             // notesが配列の場合
             notesArray = data.data.notes;
@@ -2854,7 +2862,7 @@ server.tool(
               notesArray = notesObj.contents;
             }
           }
-          
+
           result.results.notes = notesArray.map((note: any) => ({
             id: note.id || "",
             title: note.name || note.title || "",

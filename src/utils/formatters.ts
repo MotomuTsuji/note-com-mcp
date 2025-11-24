@@ -1,10 +1,10 @@
-import { 
-  Note, 
-  FormattedNote, 
-  Comment, 
-  FormattedComment, 
-  Like, 
-  FormattedLike 
+import {
+  Note,
+  FormattedNote,
+  Comment,
+  FormattedComment,
+  Like,
+  FormattedLike
 } from "../types/note-types.js";
 import { NoteUser, FormattedUser } from "../types/user-types.js";
 import { Magazine, FormattedMagazine } from "../types/api-types.js";
@@ -12,23 +12,24 @@ import { FormattedMembershipNote, MembershipSummary, MembershipPlan } from "../t
 
 // 記事データのフォーマット
 export function formatNote(
-  note: any, 
-  username?: string, 
-  includeUserDetails?: boolean, 
+  note: any,
+  username?: string,
+  includeUserDetails?: boolean,
   analyzeContent?: boolean
 ): FormattedNote {
   const user = note.user || {};
-  
+
   // コンテンツ分析用データの整形
   const hasEyecatch = Boolean(note.eyecatch || note.sp_eyecatch);
   const imageCount = note.image_count || (note.pictures ? note.pictures.length : 0);
   const price = note.price || 0;
   const isPaid = price > 0;
-  
+
   return {
     id: note.id || "",
     key: note.key || "",
     title: note.name || "",
+    body: note.body || note.noteDraft?.body || "",
     excerpt: note.body ? (note.body.length > 100 ? note.body.substring(0, 100) + '...' : note.body) : '本文なし',
     publishedAt: note.publishAt || note.publish_at || '日付不明',
     likesCount: note.likeCount || note.like_count || 0,
@@ -41,7 +42,7 @@ export function formatNote(
     editUrl: `https://note.com/${username || user.urlname || 'unknown'}/n/${note.key || ''}/edit`,
     hasDraftContent: Boolean(note.noteDraft),
     lastUpdated: note.noteDraft?.updatedAt || note.createdAt || "",
-    
+
     // コンテンツ分析情報（オプション）
     contentAnalysis: analyzeContent ? {
       hasEyecatch,
@@ -54,7 +55,7 @@ export function formatNote(
       format: note.format || "unknown",
       highlightText: note.highlight || null
     } : undefined,
-    
+
     // 価格情報
     price,
     isPaid,
@@ -64,7 +65,7 @@ export function formatNote(
       has_subscription: false,
       oneshot_lowest_price: price
     },
-    
+
     // 設定情報
     settings: {
       isLimited: note.is_limited || false,
@@ -74,7 +75,7 @@ export function formatNote(
       isMembershipConnected: note.is_membership_connected || false,
       hasAvailableCirclePlans: note.has_available_circle_plans || false
     },
-    
+
     // 著者情報（詳細オプション）
     author: {
       id: user.id || "",
@@ -204,8 +205,8 @@ export function formatMembershipPlan(plan: any): MembershipPlan {
     ownerName: owner.nickname || owner.name || "",
     headerImagePath: plan.headerImagePath || circle.headerImagePath || "",
     plans: circlePlans.map((p: any) => p.name || "").filter((n: string) => n),
-    url: owner.customDomain ? 
-      `https://${owner.customDomain.host}/membership` : 
+    url: owner.customDomain ?
+      `https://${owner.customDomain.host}/membership` :
       `https://note.com/${owner.urlname || ""}/membership`
   };
 }
@@ -235,8 +236,8 @@ export function analyzeNotes(formattedNotes: FormattedNote[], query: string, sor
     priceAnalysis: {
       free: formattedNotes.filter(note => !note.isPaid).length,
       paid: formattedNotes.filter(note => note.isPaid).length,
-      averagePrice: formattedNotes.filter(note => note.isPaid).reduce((sum, note) => sum + (note.price || 0), 0) / 
-                    formattedNotes.filter(note => note.isPaid).length || 0,
+      averagePrice: formattedNotes.filter(note => note.isPaid).reduce((sum, note) => sum + (note.price || 0), 0) /
+        formattedNotes.filter(note => note.isPaid).length || 0,
       maxPrice: Math.max(...formattedNotes.map(note => note.price || 0)),
       minPrice: Math.min(...formattedNotes.filter(note => note.isPaid).map(note => note.price || 0)) || 0
     },
@@ -247,7 +248,7 @@ export function analyzeNotes(formattedNotes: FormattedNote[], query: string, sor
       maxFollowers: Math.max(...formattedNotes.map(note => note.author?.details?.followerCount || 0)),
       officialAccounts: formattedNotes.filter(note => note.author?.details?.isOfficial).length,
       withTwitterConnection: formattedNotes.filter(note => note.author?.details?.twitterConnected).length,
-      withCustomEngagement: formattedNotes.filter(note => 
+      withCustomEngagement: formattedNotes.filter(note =>
         note.author?.details?.hasLikeAppeal || note.author?.details?.hasFollowAppeal).length
     }
   };

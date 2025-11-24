@@ -35,6 +35,41 @@ npm run start:http
 - 🔒 **セキュリティ**: 認証情報はローカルPCに保持したまま、リモートから利用可能
 - 🔄 **自動化**: n8nなどのワークフロー自動化ツールとシームレスに統合
 - 💰 **無料**: Cloudflare Tunnelは無料で利用可能
+- 🔌 **Remote MCP**: Claude Desktop、Cursor、その他のMCPクライアントからHTTP経由で接続可能
+
+### クイックスタート（Remote MCP）
+
+```bash
+# 1. HTTPサーバー起動
+npm run start:http
+# または、カスタムポートで起動
+MCP_HTTP_PORT=3001 npm run start:http
+
+# 2. ヘルスチェック
+curl http://127.0.0.1:3001/health
+
+# 3. Claude Desktopで接続
+# ~/Library/Application Support/Claude/claude_desktop_config.json に以下を追加:
+{
+  "mcpServers": {
+    "note-api": {
+      "url": "http://127.0.0.1:3001/sse",
+      "transport": "sse"
+    }
+  }
+}
+
+# 4. Cursorで接続
+# Cursor設定に以下を追加:
+{
+  "mcpServers": {
+    "note-api": {
+      "url": "http://127.0.0.1:3001/mcp",
+      "transport": "http"
+    }
+  }
+}
+```
 
 ### クイックスタート（n8n統合）
 
@@ -43,7 +78,7 @@ npm run start:http
 npm run start:http
 
 # 2. Cloudflare Tunnel起動
-cloudflared tunnel --url http://localhost:3000
+cloudflared tunnel run note-mcp
 
 # 3. n8nで接続
 # HTTP Stream URL: 表示されたCloudflare URL + /mcp
@@ -51,14 +86,78 @@ cloudflared tunnel --url http://localhost:3000
 
 詳細は [Cloudflare Tunnel セットアップガイド](./docs/CLOUDFLARE_TUNNEL_SETUP.md) を参照してください。
 
+#### Cloudflare Tunnel + HTTPストリーム運用のチェックリスト
+
+1. **ビルド & HTTPサーバー起動**
+   ```bash
+   npm run build
+   MCP_HTTP_PORT=3001 npm run start:http
+   ```
+2. **トンネル設定（例: `note-mcp`）**
+   - `~/.cloudflared/config.yml` に以下のように記載
+     ```yaml
+     tunnel: <your-tunnel-uuid>
+     credentials-file: ~/.cloudflared/<your-tunnel-uuid>.json
+     ingress:
+       - hostname: note-mcp.example.com
+         service: http://localhost:3001
+       - service: http_status:404
+     ```
+   - `cloudflared tunnel run note-mcp` を実行。
+3. **ヘルスチェック**
+   ```bash
+   curl https://note-mcp.example.com/health
+   ```
+   200 応答ならトンネル経由で到達しています。
+4. **MCP接続テスト**
+   ```bash
+   curl -X POST https://note-mcp.example.com/mcp \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+   ```
+   `serverInfo.version` が返ればHTTP streamable経由で利用可能です。
+
+> **NOTE:** `post-draft-note` など本文を扱うツールでは、Markdown入力をサーバー側で自動的にHTML（UUID属性付き）へ変換します。クライアント側で変換処理を行う必要はありません。
+
+#### n8n / Cursor / Claude からの接続設定例
+
+すべてのクライアントで `mcp-remote` を使って HTTP エンドポイントへ接続します。
+
+- **n8n (Execute Command ノード)**
+  ```
+  Command: npx
+  Arguments:
+    mcp-remote
+    https://note-mcp.example.com/mcp
+  ```
+- **Cursor (.cursor/mcp.json)**
+  ```json
+  {
+    "mcpServers": {
+      "noteMCP-remote": {
+        "command": "npx",
+        "args": [
+          "mcp-remote",
+          "https://note-mcp.example.com/mcp"
+        ]
+      }
+    }
+  }
+  ```
+- **Claude Desktop / Windsurf** でも同様に `npx mcp-remote <URL>` 形式を指定します。
+
+必要に応じて `Authorization` 等のカスタムヘッダーを `--header` オプションで追加してください。
+
 ## 📚 目次
 
 - [リポジトリ移行のお知らせ](#-リポジトリ移行のお知らせ2025年11月)
 - [新機能: HTTP/SSE トランスポート対応](#-新機能-httpsse-トランスポート対応2025年11月)
 - [機能](#機能)
 - [セットアップ](#セットアップ)
-  - [ローカル利用（Claude Desktop等）](#インストール手順)
-  - [リモート利用（n8n等）](#リモートmcp接続httpsse-トランスポート)
+  - [必要なもの](#必要なもの)
+  - [基本的なセットアップ手順](#基本的なセットアップ手順)
+  - [ローカル利用（Claude Desktop等）](#ローカル利用claude-desktop等)
+  - [リモート利用（n8n等）](#リモート利用n8n等)
   - [自動起動設定（macOS）](#-自動起動設定macos)
 - [使い方](#使い方)
 - [利用可能なツール](#利用可能なツール)
@@ -83,6 +182,7 @@ cloudflared tunnel --url http://localhost:3000
 - 記事の詳細分析（エンゲージメント分析、コンテンツ分析、価格分析など）
 - 自分の記事一覧（下書き含む）の取得
 - 記事の投稿と編集（下書き）
+- **🆕 画像のアップロード（記事に使用可能な画像URLを取得）**
 - コメントの閲覧と投稿
 - スキの管理（取得・追加・削除）
 - マガジンの検索と閲覧
@@ -96,6 +196,7 @@ cloudflared tunnel --url http://localhost:3000
 このサーバーでは、ほとんどの読み取り機能（記事検索、ユーザー情報など）は**認証なしで利用できます**。一方、以下の機能を使用するには**note.comの認証情報**が必要です：
 
 - 記事投稿（下書き）
+- **画像アップロード**
 - コメント投稿
 - スキをつける/削除する
 - PV統計情報の取得
@@ -109,10 +210,130 @@ cloudflared tunnel --url http://localhost:3000
 
 - Node.js (v18以上)
 - npm または yarn
-- Claude Desktop
+- Claude Desktop / Cursor / Windsurf
 - note.comのアカウント（投稿機能を使う場合）
 
-### インストール手順
+### 基本的なセットアップ手順
+
+このリポジトリをクローンした人が、自分のローカル環境でMCPサーバーを使用するためのセットアップ手順です。
+
+#### 1. リポジトリのクローンと準備
+
+```bash
+# リポジトリをクローン
+git clone https://github.com/shimayuz/note-com-mcp.git
+cd note-com-mcp
+
+# 依存関係のインストール
+npm install
+
+# ビルド
+npm run build
+```
+
+#### 2. 環境設定
+
+プロジェクトルートに `.env` ファイルを作成し、note.comの認証情報を設定：
+
+```bash
+cp .env.example .env
+```
+
+`.env` ファイルを編集して、あなた自身のnote.com認証情報を設定：
+```env
+NOTE_EMAIL=your_email@example.com
+NOTE_PASSWORD=your_password
+NOTE_USER_ID=your_note_user_id
+```
+
+#### 3. MCPクライアントの設定
+
+以下のいずれかの方法で、あなたのIDEやツールにMCPサーバーを設定してください。
+
+##### Cursorの場合
+
+CursorのMCP設定ファイル（`~/.cursor/mcp.json`）に以下を追加：
+
+```json
+{
+  "mcpServers": {
+    "note-api": {
+      "command": "node",
+      "args": [
+        "/path/to/your/note-com-mcp/build/note-mcp-server-refactored.js"
+      ],
+      "env": {
+        "NOTE_EMAIL": "your_email@example.com",
+        "NOTE_PASSWORD": "your_password",
+        "NOTE_USER_ID": "your_note_user_id"
+      }
+    }
+  }
+}
+```
+
+**注意**: `/path/to/your/note-com-mcp` は、あなたがクローンした実際のパスに置き換えてください。
+
+##### Claude Desktopの場合
+
+Claude Desktopの設定ファイル（`~/Library/Application Support/Claude/claude_desktop_config.json`）に以下を追加：
+
+```json
+{
+  "mcpServers": {
+    "note-api": {
+      "command": "node",
+      "args": [
+        "/path/to/your/note-com-mcp/build/note-mcp-server-refactored.js"
+      ],
+      "env": {
+        "NOTE_EMAIL": "your_email@example.com",
+        "NOTE_PASSWORD": "your_password",
+        "NOTE_USER_ID": "your_note_user_id"
+      }
+    }
+  }
+}
+```
+
+##### Windsurfの場合
+
+WindsurfのMCP設定ファイル（`~/.codeium/windsurf/mcp_config.json`）に以下を追加：
+
+```json
+{
+  "mcpServers": {
+    "note-api": {
+      "command": "node",
+      "args": [
+        "/path/to/your/note-com-mcp/build/note-mcp-server-refactored.js"
+      ],
+      "env": {
+        "NOTE_EMAIL": "your_email@example.com",
+        "NOTE_PASSWORD": "your_password",
+        "NOTE_USER_ID": "your_note_user_id"
+      }
+    }
+  }
+}
+```
+
+#### 4. 起動とテスト
+
+```bash
+# サーバーを起動してテスト
+npm run start
+```
+
+サーバーが正常に起動したら、あなたのIDEでnote.comの記事検索などが利用可能になります。
+
+#### トラブルシューティング
+
+- **パスが見つからない場合**: MCP設定ファイルのパス（`/path/to/your/note-com-mcp`）を、あなたの実際のクローン先ディレクトリに置き換えてください
+- **認証エラーの場合**: `.env`ファイルの認証情報が正しいか確認してください
+- **ビルドエラーの場合**: `npm install` と `npm run build` を再度実行してください
+
+### ローカル利用（Claude Desktop等）
 
 1. このリポジトリをクローンします:
    ```bash
@@ -178,8 +399,6 @@ src/
 #### 方法１：メールアドレスとパスワードによる認証（推奨）
 
 `.env`ファイルにあなたのnote.comアカウントのメールアドレスとパスワード、およびユーザーIDを設定します：
-
-**重要**: 下書き編集機能を使用する場合は、ブラウザのCookieから `note_gql_auth_token` の値を取得し、`.env`ファイルに `NOTE_GQL_AUTH_TOKEN` として設定する必要があります。
 
 ```env
 NOTE_EMAIL=your_email@example.com
@@ -518,6 +737,8 @@ launchctl stop com.cloudflared.note-mcp
 - 「私のnoteの下書き記事一覧を取得して」
 - 「下書き記事のID: n12345の編集ページを開きたい」
 - 「タイトル『テスト記事』、本文『これはテストです』で下書き記事を作成して」
+- 「画像ファイル `/path/to/image.jpg` をnoteにアップロードして」
+- 「この画像URL `https://example.com/image.png` をnoteにアップロードして」
 - 「私のnoteアカウントの最新記事のPV数を教えて」
 - 「この記事にスキをつけて」
 - 「この記事にコメントを投稿して」
@@ -548,6 +769,8 @@ launchctl stop com.cloudflared.note-mcp
 - **get-my-notes**: 自分の記事一覧（下書き含む）を取得
 - **post-draft-note**: 下書き記事を投稿・更新
 - **open-note-editor**: 記事の編集ページURLを生成
+- **upload-image**: 画像をアップロード（ファイルパス、URL、Base64から）
+- **upload-images-batch**: 複数の画像を一括アップロード
 
 ### インタラクション（認証必須）
 - **get-comments**: 記事のコメント一覧を取得（認証なしでも可能なケースあり）
@@ -584,23 +807,7 @@ launchctl stop com.cloudflared.note-mcp
 
 - **get-my-notes**: 下書き記事の取得については、note.comのAPI実装によっては一部の情報が取得できない場合があります。
 
-- **edit-note/publish-note**: 下書き編集や公開機能を使用するには、`NOTE_GQL_AUTH_TOKEN`の設定が必要です。このトークンが設定されていない場合、編集時に認証エラーが発生します。
-
-### 下書き編集機能の利用方法
-
-記事の下書き編集や公開機能を使用するための手順：
-
-1. note.comにログインします
-2. ブラウザの開発者ツール（Chromeの場合は F12 キーまたは右クリックから「調査」）を開きます
-3. 「Application」または「Storage」タブを選択し、左側のメニューから「Cookies」→「https://note.com」を選択します
-4. リストから「note_gql_auth_token」を探し、その値をコピーします
-5. `.env`ファイルに以下の行を追加します：
-   ```
-   NOTE_GQL_AUTH_TOKEN=コピーしたトークン値
-   ```
-6. MCPサーバーを再起動して変更を反映させます
-
-認証トークンが正しく設定されれば、下書き編集機能が正常に動作します。
+- **edit-note/publish-note**: 下書き編集や公開機能は、セッションCookieとXSRFトークンで利用可能です。
 
 ### 新機能の使用例
 
@@ -654,7 +861,7 @@ search-notes(query: "ChatGPT")
 - `.env` ファイルに設定した認証情報（メールアドレス/パスワード、またはCookie値、ユーザーID）が正しいか、最新か確認してください。
 - Cookie認証の場合、有効期限が切れている可能性があります。
 - 認証が必要な機能であるか確認してください。
-- 下書き編集機能でエラーが発生する場合は、`NOTE_GQL_AUTH_TOKEN`の設定が必要です。note.comにログインし、開発者ツールでCookieから`note_gql_auth_token`の値を取得して設定してください。
+- 下書き編集機能は、セッションCookieとXSRFトークンで利用可能です。認証情報が正しく設定されているか確認してください。
 
 ### APIエラーが発生する
 - note.comのAPI仕様が変更された可能性があります。

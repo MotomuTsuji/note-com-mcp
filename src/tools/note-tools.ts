@@ -2,13 +2,13 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { noteApiRequest } from "../utils/api-client.js";
 import { formatNote, formatComment, formatLike } from "../utils/formatters.js";
-import { 
-  createSuccessResponse, 
-  createErrorResponse, 
+import {
+  createSuccessResponse,
+  createErrorResponse,
   createAuthErrorResponse,
-  handleApiError 
+  handleApiError
 } from "../utils/error-handler.js";
-import { 
+import {
   hasAuth,
   buildAuthHeaders,
   getPreviewAccessToken,
@@ -30,9 +30,9 @@ export function registerNoteTools(server: McpServer) {
           draft_reedit: "false",
           ts: Date.now().toString()
         });
-        
+
         const data = await noteApiRequest(
-          `/v3/notes/${noteId}?${params.toString()}`, 
+          `/v3/notes/${noteId}?${params.toString()}`,
           "GET",
           null,
           true
@@ -98,7 +98,7 @@ export function registerNoteTools(server: McpServer) {
     }
   );
 
-  // 4. 記事下書き保存ツール
+  // 4. 記事下書き保存ツール（HTTPサーバー成功版を移植）
   server.tool(
     "post-draft-note",
     "下書き状態の記事を新規作成または更新する",
@@ -109,104 +109,86 @@ export function registerNoteTools(server: McpServer) {
       id: z.string().optional().describe("既存の下書きID（既存の下書きを更新する場合）"),
     },
     async ({ title, body, tags, id }) => {
-        let previewAccessToken: string | null = null;
       try {
         if (!hasAuth()) {
           return createAuthErrorResponse();
         }
 
-        if (id) { // 既存の下書きIDがある場合のみpreview_access_tokenを取得
-          previewAccessToken = await getPreviewAccessToken(id);
-          if (!previewAccessToken) {
-            console.error(`Failed to get preview_access_token for noteId: ${id}. Proceeding without it for draft save.`);
-            // トークン取得失敗時は、以前の挙動（トークンなし）で試行する
-          }
-        }
+        // 下書き保存用のカスタムヘッダーを構築
+        const buildCustomHeaders = () => {
+          const headers = buildAuthHeaders();
+          headers["content-type"] = "application/json";
+          headers["origin"] = "https://editor.note.com";
+          headers["referer"] = "https://editor.note.com/";
+          headers["x-requested-with"] = "XMLHttpRequest";
+          return headers;
+        };
 
-        console.error("下書き保存リクエスト内容:");
+        // 新規作成の場合、まず空の下書きを作成
+        if (!id) {
+          console.error("新規下書きを作成します...");
 
-        // 試行1: 公式API形式で試行（参考: https://note.com/taku_sid/n/n1b1b7894e28f）
-        try {
-          console.error("試行1: 公式API形式 /api/v1/text_notes");
-          
-          // 参照記事に基づく正しいパラメータ形式
-          const postData1: any = {
-            name: title,  // 'title'ではなく'name'
-            body: body,
-            template_key: null  // 新規作成時に必要
+          const createData = {
+            body: "<p></p>",
+            body_length: 0,
+            name: title || "無題",
+            index: false,
+            is_lead_form: false
           };
-          
-          // 更新時はstatusを追加し、template_keyを削除
-          if (id) {
-            postData1.status = "draft";
-            delete postData1.template_key;
-          }
 
-          console.error(`リクエスト内容: ${JSON.stringify(postData1, null, 2)}`);
+          const headers = buildCustomHeaders();
 
-          let endpoint = "";
-          let method: "POST" | "PUT";
-          if (id) { // 既存記事の更新
-            endpoint = `/v1/text_notes/${id}`;
-            method = "PUT";
-          } else { // 新規作成
-            endpoint = `/v1/text_notes`;
-            method = "POST";
-          }
+          const createResult = await noteApiRequest(
+            "/v1/text_notes",
+            "POST",
+            createData,
+            true,
+            headers
+          );
 
-          const headers1 = buildAuthHeaders();
-          if (previewAccessToken) {
-            headers1['Authorization'] = `Bearer ${previewAccessToken}`;
-          }
-          const data = await noteApiRequest(endpoint, method, postData1, true, headers1);
-          console.error(`成功: ${JSON.stringify(data, null, 2)}`);
-
-          return createSuccessResponse({
-            success: true,
-            data: data,
-            message: id ? "既存の記事を下書き保存しました" : "新しい記事を下書き保存しました",
-            noteId: data.data?.key || id || data.id || null
-          });
-        } catch (error1) {
-          console.error(`試行1でエラー: ${error1}`);
-
-          // 試行2: 旧APIエンドポイント
-          try {
-            console.error("試行2: 旧APIエンドポイント");
-            const postData2 = {
-              title,
-              body,
-              tags: tags || [],
-            };
-
-            console.error(`リクエスト内容: ${JSON.stringify(postData2, null, 2)}`);
-
-            const endpoint = id
-              ? `/v1/text_notes/draft_save?id=${id}&user_id=${env.NOTE_USER_ID}`
-              : `/v1/text_notes/draft_save?user_id=${env.NOTE_USER_ID}`;
-
-            const headers2 = buildAuthHeaders();
-            // 試行2ではpreviewAccessTokenを必須としない（旧APIのため互換性維持）
-            // もし試行1で取得できていれば利用する形も考えられるが、一旦シンプルに
-            const data = await noteApiRequest(endpoint, "POST", postData2, true, headers2);
-            console.error(`成功: ${JSON.stringify(data, null, 2)}`);
-
-            return createSuccessResponse({
-              success: true,
-              data: data,
-              message: id ? "既存の記事を下書き保存しました" : "新しい記事を下書き保存しました",
-              noteId: data.id || data.note_id || id || null
-            });
-          } catch (error2) {
-            console.error(`試行2でエラー: ${error2}`);
-            return createErrorResponse(
-              `記事の投稿に失敗しました:\n試行1エラー: ${error1}\n試行2エラー: ${error2}\n\nセッションの有効期限が切れている可能性があります。.envファイルのCookie情報を更新してください。`
-            );
+          if (createResult.data?.id) {
+            id = createResult.data.id.toString();
+            const key = createResult.data.key || `n${id}`;
+            console.error(`下書き作成成功: ID=${id}, key=${key}`);
+          } else {
+            throw new Error("下書きの作成に失敗しました");
           }
         }
+
+        // 下書きを更新
+        console.error(`下書きを更新します (ID: ${id})`);
+
+        const updateData = {
+          body: body || "",
+          body_length: (body || "").length,
+          name: title || "無題",
+          index: false,
+          is_lead_form: false
+        };
+
+        const headers = buildCustomHeaders();
+
+        const data = await noteApiRequest(
+          `/v1/text_notes/draft_save?id=${id}&is_temp_saved=true`,
+          "POST",
+          updateData,
+          true,
+          headers
+        );
+
+        const noteKey = `n${id}`;
+        return createSuccessResponse({
+          success: true,
+          message: "記事を下書き保存しました",
+          noteId: id,
+          noteKey: noteKey,
+          editUrl: `https://editor.note.com/notes/${noteKey}/edit/`,
+          data: data
+        });
+
       } catch (error) {
-        console.error(`下書き保存処理全体でエラー: ${error}`);
-        return handleApiError(error, "記事投稿");
+        console.error(`下書き保存処理でエラー: ${error}`);
+        return handleApiError(error, "記事下書き保存");
       }
     }
   );
@@ -230,96 +212,41 @@ export function registerNoteTools(server: McpServer) {
 
         console.error(`記事編集リクエスト: ${noteId}`);
 
-        // 先に記事情報を取得してみる
+        // 新しいPUT APIエンドポイントを使用
         try {
-          const params = new URLSearchParams({
-            draft: "true",
-            draft_reedit: "false",
-            ts: Date.now().toString()
-          });
-          
-          await noteApiRequest(
-            `/v3/notes/${noteId}?${params.toString()}`, 
-            "GET",
-            null,
-            true
-          );
-        } catch (getError) {
-          console.error(`記事情報取得エラー: ${getError}`);
-          return createErrorResponse(`指定された記事が存在しないか、アクセスできません: ${noteId}`);
-        }
-
-        // 記事編集API - v3形式を試行
-        try {
-          let previewAccessToken: string | null = null;
-          if (noteId) { // 既存記事の場合のみトークン取得を試みる
-            try {
-              previewAccessToken = await getPreviewAccessToken(noteId);
-              if (previewAccessToken && env.DEBUG) {
-                console.error(`edit-note: Preview access token obtained for note ${noteId}`);
-              }
-            } catch (tokenError) {
-              console.error(`edit-note: Failed to get preview access token for note ${noteId}: ${tokenError}`);
-              // トークン取得に失敗しても、処理を続行する（セッション認証で試みる）
-            }
+          // noteIdから数値IDを抽出（get-noteで取得したidを使用）
+          let numericId: string;
+          if (noteId.startsWith('n')) {
+            // 文字列IDの場合、まず記事情報を取得して数値IDを取得
+            const noteInfo = await noteApiRequest(`/v3/notes/${noteId}`, "GET", null, true);
+            numericId = noteInfo.id?.toString() || noteId;
+          } else {
+            numericId = noteId;
           }
 
-          const postDataV3 = {
+          const postData = {
             title: title,
             body: body,
             status: isDraft ? "draft" : "published",
-            tags: tags || [],
-            publish_at: null,
-            eyecatch_image: null,
-            price: 0,
-            is_magazine_note: false
+            tags: tags || []
           };
 
-          const headersV3 = buildAuthHeaders();
-          if (previewAccessToken) { // 取得できていればヘッダーに追加
-            headersV3['Authorization'] = `Bearer ${previewAccessToken}`;
-            if (env.DEBUG) console.error('edit-note: Authorization header set with previewAccessToken for V3 API');
-          }
+          const headers = buildAuthHeaders();
 
-          // V3編集エンドポイント
-          const endpointV3 = `/v3/notes/${noteId}/${isDraft ? 'draft' : 'publish'}`;
-          const dataV3 = await noteApiRequest(endpointV3, "POST", postDataV3, true, headersV3);
-          console.error(`V3 API 編集成功: ${JSON.stringify(dataV3, null, 2)}`);
+          // 新しいPUT APIエンドポイント
+          const endpoint = `/api/v1/text_notes/${numericId}`;
+          const data = await noteApiRequest(endpoint, "PUT", postData, true, headers);
+          console.error(`PUT API 編集成功: ${JSON.stringify(data, null, 2)}`);
 
           return createSuccessResponse({
             success: true,
-            data: dataV3,
-            message: isDraft ? "記事をV3 APIで下書き保存しました" : "記事をV3 APIで公開しました",
+            data: data,
+            message: isDraft ? "記事を下書き保存しました" : "記事を公開しました",
             noteId: noteId
           });
-        } catch (errorV3) {
-          console.error(`V3 API編集エラー: ${errorV3}`);
-          
-          // V3で失敗した場合、V1形式でフォールバック
-          try {
-            const postDataV1 = { // V1 uses a simpler payload
-              title,
-              body,
-              tags: tags || [],
-            };
-            const headersV1 = buildAuthHeaders(); // V1は通常セッション認証のみ
-
-            const endpointV1 = `/v1/text_notes/draft_save?id=${noteId}&user_id=${env.NOTE_USER_ID}`;
-            const dataV1 = await noteApiRequest(endpointV1, "POST", postDataV1, true, headersV1);
-            console.error(`V1 API 旧形式での編集成功: ${JSON.stringify(dataV1, null, 2)}`);
-
-            return createSuccessResponse({
-              success: true,
-              data: dataV1,
-              message: "記事を下書き状態で更新しました（V1 API旧形式使用）",
-              noteId: noteId
-            });
-          } catch (errorV1) {
-            console.error(`V1 API編集エラー (フォールバック試行後): ${errorV1}`);
-            return createErrorResponse(
-              `記事の編集に失敗しました:\nAttempted V3 API Error: ${errorV3}\nFallback V1 API Error: ${errorV1}\n\nセッションの有効期限が切れている可能性があります。.envファイルのCookie情報を更新してください。`
-            );
-          }
+        } catch (error) {
+          console.error(`PUT API編集エラー: ${error}`);
+          return createErrorResponse(`記事の編集に失敗しました: ${error}`);
         }
       } catch (error) {
         console.error(`記事編集処理全体でエラー: ${error}`);
@@ -354,14 +281,14 @@ export function registerNoteTools(server: McpServer) {
             draft_reedit: "false",
             ts: Date.now().toString()
           });
-          
+
           const noteData = await noteApiRequest(
-            `/v3/notes/${noteId}?${params.toString()}`, 
+            `/v3/notes/${noteId}?${params.toString()}`,
             "GET",
             null,
             true
           );
-          
+
           currentNote = noteData.data || {};
         } catch (getError) {
           console.error(`記事情報取得エラー: ${getError}`);
@@ -382,7 +309,7 @@ export function registerNoteTools(server: McpServer) {
           };
 
           const endpoint = `/v3/notes/${noteId}/publish`;
-          
+
           const data = await noteApiRequest(endpoint, "POST", postData, true);
           console.error(`公開成功: ${JSON.stringify(data, null, 2)}`);
 
@@ -528,10 +455,10 @@ export function registerNoteTools(server: McpServer) {
             const isDraft = note.status === "draft";
             const noteKey = note.key || "";
             const noteId = note.id || "";
-            
+
             const draftTitle = note.noteDraft?.name || "";
             const title = note.name || draftTitle || "(無題)";
-            
+
             let excerpt = "";
             if (note.body) {
               excerpt = note.body.length > 100 ? note.body.substring(0, 100) + '...' : note.body;
@@ -541,9 +468,9 @@ export function registerNoteTools(server: McpServer) {
               const textContent = note.noteDraft.body.replace(/<[^>]*>/g, '');
               excerpt = textContent.length > 100 ? textContent.substring(0, 100) + '...' : textContent;
             }
-            
+
             const publishedAt = note.publishAt || note.publish_at || note.displayDate || note.createdAt || '日付不明';
-            
+
             return {
               id: noteId,
               key: noteKey,

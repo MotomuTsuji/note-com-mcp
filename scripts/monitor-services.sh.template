@@ -1,0 +1,112 @@
+#!/bin/bash
+
+# note-mcp-server 監視・自動復旧スクリプト
+# 24時間365日の安定稼働を確保
+
+DOMAIN="your-domain.com"
+LOCAL_PORT="3000"
+LOG_FILE="$HOME/.cloudflared/monitor.log"
+DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"  # オプション：Discord通知用Webhook URL
+PROJECT_PATH="/home/YOUR_USERNAME/noteMCP"     # プロジェクトの絶対パス
+
+# ログ関数
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG_FILE
+}
+
+# 通知関数
+notify() {
+    local message="$1"
+    log "$message"
+    
+    if [[ -n "$DISCORD_WEBHOOK_URL" ]]; then
+        curl -X POST -H 'Content-type: application/json' \
+            --data "{\"content\":\"🤖 note-mcp-server: $message\"}" \
+            "$DISCORD_WEBHOOK_URL" 2>/dev/null || true
+    fi
+}
+
+# サービス状態チェック
+check_local_server() {
+    if curl -s http://localhost:$LOCAL_PORT/health > /dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Tunnel状態チェック
+check_tunnel() {
+    if curl -s https://$DOMAIN/health > /dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# ローカルサーバー再起動
+restart_local_server() {
+    log "ローカルサーバーを再起動します..."
+    pkill -f "note-mcp-server-http.js" 2>/dev/null || true
+    sleep 3
+    cd $PROJECT_PATH
+    npm run start:http > /dev/null 2>&1 &
+    sleep 5
+}
+
+# Tunnel再起動
+restart_tunnel() {
+    log "Cloudflare Tunnelを再起動します..."
+    pkill -f cloudflared 2>/dev/null || true
+    sleep 5
+    cloudflared tunnel run note-mcp > /dev/null 2>&1 &
+    sleep 10
+}
+
+# メイン監視ループ
+main() {
+    log "=== note-mcp-server 監視開始 ==="
+    
+    while true; do
+        # ローカルサーバーをチェック
+        if ! check_local_server; then
+            notify "⚠️ ローカルサーバーが応答しません"
+            restart_local_server
+            
+            if check_local_server; then
+                notify "✅ ローカルサーバーが復旧しました"
+            else
+                notify "❌ ローカルサーバーの復旧に失敗しました"
+                sleep 30
+                continue
+            fi
+        fi
+        
+        # Tunnelをチェック
+        if ! check_tunnel; then
+            notify "⚠️ Cloudflare Tunnelが応答しません"
+            restart_tunnel
+            
+            if check_tunnel; then
+                notify "✅ Cloudflare Tunnelが復旧しました"
+            else
+                notify "❌ Cloudflare Tunnelの復旧に失敗しました"
+                # DNSの問題かもしれないので、再設定を試行
+                log "Tunnelの再設定を試行します..."
+                $PROJECT_PATH/scripts/setup-cloudflare-tunnel.sh
+            fi
+        fi
+        
+        # 正常時
+        log "✅ すべてのサービスが正常に動作しています"
+        
+        # 5分待機
+        sleep 300
+    done
+}
+
+# シグナルハンドラ
+trap 'log "=== 監視終了 ==="; exit 0' SIGTERM SIGINT
+
+# 実行
+main "$@"
