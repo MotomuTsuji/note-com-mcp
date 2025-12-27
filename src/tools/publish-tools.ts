@@ -328,6 +328,7 @@ async function createNoteWithPlaywright(
 
         let bodyElements = elements;
         let eyecatchImagePath: string | null = null;
+        let eyecatchCaption: string | null = null;
 
         const eyecatchIndex = elements.findIndex(
             (element) => element.type === 'image' && Boolean(element.imagePath)
@@ -338,6 +339,7 @@ async function createNoteWithPlaywright(
             eyecatchImagePath = imagePath.startsWith('/')
                 ? imagePath
                 : path.join(imageBasePath, imagePath);
+            eyecatchCaption = eyecatchElement.caption || null;
 
             bodyElements = [
                 ...elements.slice(0, eyecatchIndex),
@@ -347,6 +349,16 @@ async function createNoteWithPlaywright(
 
         if (eyecatchImagePath) {
             await setEyecatchImage(page, eyecatchImagePath);
+
+            // アイキャッチ画像にキャプションがあれば本文の先頭に追加
+            if (eyecatchCaption) {
+                await page.waitForTimeout(500);
+                const bodyBox = page.locator('div[contenteditable="true"][role="textbox"]').first();
+                await bodyBox.click();
+                await page.keyboard.type(eyecatchCaption);
+                await page.keyboard.press('Enter');
+                await page.keyboard.press('Enter');
+            }
         }
 
         // エディタに書式付きで入力

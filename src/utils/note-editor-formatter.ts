@@ -1,4 +1,5 @@
 import { Page } from "playwright";
+import path from "path";
 
 /**
  * Markdownの要素タイプ
@@ -22,6 +23,7 @@ export interface MarkdownElement {
     content: string;
     language?: string;  // コードブロックの言語
     imagePath?: string; // 画像のパス
+    caption?: string;   // 画像のキャプション
 }
 
 /**
@@ -38,6 +40,59 @@ export function parseMarkdown(markdown: string): MarkdownElement[] {
         // 空行はスキップ
         if (line.trim() === '') {
             i++;
+            continue;
+        }
+
+        // ai-summaryタグブロックの処理
+        // <!-- ai-summary:start id="img1" ... -->
+        // ![[image.png]]
+        // *キャプションテキスト*
+        // <!-- ai-summary:end id="img1" -->
+        const aiSummaryStartMatch = line.match(/^<!--\s*ai-summary:start\s+id="([^"]+)"/);
+        if (aiSummaryStartMatch) {
+            const blockId = aiSummaryStartMatch[1];
+            i++;
+
+            let imagePath: string | null = null;
+            let caption: string | null = null;
+
+            // ai-summary:end まで読み進める
+            while (i < lines.length && !lines[i].match(/^<!--\s*ai-summary:end/)) {
+                const currentLine = lines[i].trim();
+
+                // 画像行を検出
+                const obsidianImg = currentLine.match(/^!\[\[([^\]|]+)(?:\|[^\]]+)?\]\]$/);
+                const mdImg = currentLine.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+
+                if (obsidianImg) {
+                    imagePath = obsidianImg[1];
+                } else if (mdImg) {
+                    imagePath = mdImg[2];
+                }
+
+                // キャプション行を検出（*で囲まれたテキスト）
+                const captionMatch = currentLine.match(/^\*(.+)\*$/);
+                if (captionMatch) {
+                    caption = captionMatch[1].trim();
+                }
+
+                i++;
+            }
+
+            // ai-summary:end 行をスキップ
+            if (i < lines.length && lines[i].match(/^<!--\s*ai-summary:end/)) {
+                i++;
+            }
+
+            // 画像要素を追加
+            if (imagePath) {
+                elements.push({
+                    type: 'image',
+                    content: imagePath,
+                    imagePath: imagePath,
+                    caption: caption || undefined
+                });
+            }
             continue;
         }
 
@@ -112,22 +167,55 @@ export function parseMarkdown(markdown: string): MarkdownElement[] {
         const mdImageMatch = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
 
         if (obsidianImageMatch) {
-            elements.push({
+            const imageElement: MarkdownElement = {
                 type: 'image',
                 content: obsidianImageMatch[1],
                 imagePath: obsidianImageMatch[1]
-            });
+            };
+            elements.push(imageElement);
             i++;
+
+            // 画像直後の空行を1行だけスキップ
+            if (i < lines.length && lines[i].trim() === '') {
+                i++;
+            }
+
+            // 次の行がキャプションかチェック
+            if (i < lines.length && lines[i].trim() && !lines[i].match(/^#{1,6}\s/) &&
+                !lines[i].match(/^[-*]\s/) && !lines[i].match(/^\d+\.\s/) &&
+                !lines[i].match(/^>\s/) && !lines[i].match(/^```/) &&
+                !lines[i].match(/^---+$/) && !lines[i].match(/^!\[/)) {
+                // 画像直後のテキスト行をキャプションとして扱う
+                imageElement.caption = lines[i].trim();
+                i++;
+            }
             continue;
         }
 
         if (mdImageMatch) {
-            elements.push({
+            const imageElement: MarkdownElement = {
                 type: 'image',
                 content: mdImageMatch[1],
-                imagePath: mdImageMatch[2]
-            });
+                imagePath: mdImageMatch[2],
+                caption: mdImageMatch[1] && mdImageMatch[1] !== path.basename(mdImageMatch[2]) ? mdImageMatch[1] : undefined
+            };
+            elements.push(imageElement);
             i++;
+
+            // 画像直後の空行を1行だけスキップ
+            if (i < lines.length && lines[i].trim() === '') {
+                i++;
+            }
+
+            // 次の行がキャプションかチェック（altテキストがない場合）
+            if (!mdImageMatch[1] && i < lines.length && lines[i].trim() && !lines[i].match(/^#{1,6}\s/) &&
+                !lines[i].match(/^[-*]\s/) && !lines[i].match(/^\d+\.\s/) &&
+                !lines[i].match(/^>\s/) && !lines[i].match(/^```/) &&
+                !lines[i].match(/^---+$/) && !lines[i].match(/^!\[/)) {
+                // 画像直後のテキスト行をキャプションとして扱う
+                imageElement.caption = lines[i].trim();
+                i++;
+            }
             continue;
         }
 
@@ -191,6 +279,25 @@ export async function formatToNoteEditor(
                         ? element.imagePath
                         : `${imageBasePath}/${element.imagePath}`;
                     await insertImageFn(page, bodyBox, fullPath);
+
+                    // キャプションがあれば挿入
+                    if (element.caption) {
+                        await page.waitForTimeout(1500);
+
+                        // 「キャプションを入力」テキストをクリック
+                        try {
+                            const captionText = page.locator('text=キャプションを入力').last();
+                            await captionText.waitFor({ state: 'visible', timeout: 5000 });
+                            await captionText.click();
+                            await page.waitForTimeout(500);
+                            await page.keyboard.type(element.caption);
+                            await page.keyboard.press('Escape');
+                            await page.waitForTimeout(300);
+                        } catch (e) {
+                            // フォールバック: 本文の次の行に入力
+                            console.log('キャプション入力欄が見つかりません、本文に入力します');
+                        }
+                    }
                 }
                 break;
 

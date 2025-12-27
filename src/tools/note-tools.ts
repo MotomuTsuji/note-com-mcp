@@ -332,6 +332,32 @@ export function registerNoteTools(server: McpServer) {
         // 本文内の画像参照をアップロードしたURLに置換
         let processedBody = body;
 
+        // デバッグ: 受信したbodyをログ出力
+        console.error("=== 受信したbody ===");
+        console.error(body.substring(0, 2000));
+        console.error("=== end body ===");
+
+        // ai-summaryタグブロックを処理
+        // <!-- ai-summary:start id="img1" ... -->
+        // ![[image.png]]
+        // *キャプションテキスト*
+        // <!-- ai-summary:end id="img1" -->
+        processedBody = processedBody.replace(
+          /<!--\s*ai-summary:start[^>]*-->\n(!\[\[([^\]|]+)(?:\|[^\]]+)?\]\])\n\*([^*]+)\*\n<!--\s*ai-summary:end[^>]*-->/g,
+          (match, imgTag, fileName, caption) => {
+            console.error(`ai-summary match found: fileName=${fileName}, caption=${caption}`);
+            const cleanFileName = fileName.trim();
+            const baseName = path.basename(cleanFileName);
+            if (uploadedImages.has(baseName)) {
+              const imageUrl = uploadedImages.get(baseName)!;
+              const uuid1 = randomUUID();
+              const uuid2 = randomUUID();
+              return `<figure name="${uuid1}" id="${uuid2}"><img src="${imageUrl}" alt="" width="620" height="auto"><figcaption>${caption.trim()}</figcaption></figure>`;
+            }
+            return match;
+          }
+        );
+
         // Obsidian形式の画像参照を置換: ![[filename.png]] or ![[filename.png|caption]]
         processedBody = processedBody.replace(
           /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,
