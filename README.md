@@ -31,14 +31,17 @@ npm run build
 `.env` ファイルを作成してnote.comの認証情報を設定
 
 ```bash
-cp .env.example .env
+cp .env.sample .env
 ```
 
-`.env` を編集
+`.env` を編集（セッション情報はブラウザの開発者ツールから取得）
 ```env
-NOTE_EMAIL=your_email@example.com
-NOTE_PASSWORD=your_password
-NOTE_USER_ID=your_note_user_id
+NOTE_EMAIL=your-email@example.com
+NOTE_PASSWORD=your-password
+NOTE_SESSION_V5=取得したセッションCookie
+NOTE_XSRF_TOKEN=取得したXSRFトークン
+NOTE_ALL_COOKIES=すべてのCookie
+NOTE_USER_ID=あなたのユーザーID
 ```
 
 ### 3. 起動
