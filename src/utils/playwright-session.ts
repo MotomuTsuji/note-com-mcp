@@ -216,19 +216,22 @@ export async function refreshSessionWithPlaywright(
                 try {
                     // URLチェック
                     const currentUrl = page.url();
-                    const urlChanged = !currentUrl.includes('/login');
+                    // /login を含まない、かつ note.com ドメインであること
+                    const urlChanged = !currentUrl.includes('/login') && currentUrl.includes('note.com');
 
-                    // Cookieチェック
-                    const cookies = await context.cookies();
+                    // Cookieチェック（note.comドメインのCookieを取得）
+                    const cookies = await context.cookies('https://note.com');
                     const hasSessionCookie = cookies.some(c => c.name === "_note_session_v5");
 
                     if (urlChanged || hasSessionCookie) {
                         loginComplete = true;
-                        console.error("\n✅ ログインを検知しました！");
+                        console.error("✅ ログインを検知しました！");
                     } else {
-                        // 進行状況を表示
+                        // 進行状況を表示（10秒ごと）
                         const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                        process.stderr.write(`\r⏳ 待機中... (${elapsed}秒経過)`);
+                        if (elapsed % 10 === 0 && elapsed > 0) {
+                            console.error(`⏳ ログイン待機中... (${elapsed}秒経過)`);
+                        }
                     }
                 } catch {
                     // ページが閉じられた場合
@@ -276,18 +279,27 @@ export async function refreshSessionWithPlaywright(
 
         // 追加でユーザーIDも取得（LOG用途）
         try {
-            const response = await page.goto("https://note.com/api/v2/session", {
-                waitUntil: "networkidle",
-                timeout: merged.navigationTimeoutMs,
+            // page.evaluateでfetchを使用（page.gotoだとHTMLが返ってくる場合がある）
+            const userKey = await page.evaluate(async () => {
+                try {
+                    const res = await fetch("https://note.com/api/v2/session", {
+                        credentials: "include",
+                    });
+                    if (!res.ok) return null;
+                    const json = await res.json();
+                    return json?.data?.user?.urlname || json?.data?.user?.id || null;
+                } catch {
+                    return null;
+                }
             });
-            const json = await response?.json();
-            const userKey = json?.data?.user?.urlname || json?.data?.user?.id;
             if (userKey) {
                 setActiveUserKey(userKey);
                 process.env.NOTE_USER_ID = userKey;
+                console.error(`✅ ユーザーID取得: ${userKey}`);
             }
         } catch (error) {
-            console.error("⚠️ Playwrightでユーザー情報取得に失敗しました", error);
+            // ユーザー情報取得は必須ではないので警告のみ
+            console.error("⚠️ ユーザー情報取得をスキップしました（セッションは正常に取得済み）");
         }
 
         // ストレージ状態を保存（次回のPlaywright起動時に再利用）
