@@ -537,11 +537,12 @@ async function performAuthentication(): Promise<void> {
   const forceAuthRefresh = process.env.MCP_FORCE_AUTH_REFRESH === "true";
 
   // 自動ログインの試行
+  let authenticated = false;
+
   if (authStatus.hasCookie && !forceAuthRefresh) {
     console.error("✅ 既存の認証Cookieがあるため自動ログインをスキップします");
+    authenticated = true;
   } else if (env.NOTE_EMAIL && env.NOTE_PASSWORD) {
-    let authenticated = false;
-
     try {
       const loginSuccess = await withTimeout(
         loginToNote(),
@@ -574,9 +575,22 @@ async function performAuthentication(): Promise<void> {
     }
   }
 
+  // 認証情報がない場合、Playwrightで手動ログインを試行
+  if (!authenticated) {
+    console.error("📝 認証情報が設定されていません。Playwrightでブラウザログインを試行します...");
+    console.error("   ブラウザが開いたら、note.comにログインしてください。");
+    try {
+      await refreshSessionWithPlaywright({ headless: false, navigationTimeoutMs: 300000 });
+      console.error("✅ Playwrightでのログインに成功しました");
+      authenticated = true;
+    } catch (error: any) {
+      console.error("⚠️ Playwrightログインでエラーが発生しました:", error.message);
+    }
+  }
+
   // 認証状態の表示
   console.error("◤◢◤◢◤◢◤◢◤◢◤◢◤◢");
-  if (authStatus.hasCookie || authStatus.anyAuth) {
+  if (authenticated || authStatus.hasCookie || authStatus.anyAuth) {
     console.error("🔓 認証情報が設定されています");
     console.error("✨ 認証が必要な機能も利用できます");
   } else {
