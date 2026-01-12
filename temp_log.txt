@@ -1,0 +1,17 @@
+「下書き投稿のAPIを`curl`コマンドで確認するために、noteにログインした状態でブラウザの開発者ツールから以下のCookieとヘッダーの情報を教えていただけますでしょうか。\n\n1. `_note_session_v5` のCookieの値\n2. `XSRF-TOKEN` ヘッダーの値 (またはCookieの`XSRF-TOKEN`の値)\n\nこれらの情報を使って`curl`コマンドを作成します。」
+
+
+---
+
+「下書き投稿のAPIをcurlコマンドで確認するために、noteにログインした状態でブラウザの開発者ツールから以下のCookieとヘッダーの情報を教えていただけますでしょうか。
+
+1. `_note_session_v5` のCookieの値
+   - ブラウザでnote.comにログイン後、開発者ツール（通常F12キーで開きます）を開き、「Application」タブを選択します。
+   - 左側のメニューから「Cookies」を展開し、「https://note.com」を選択します。
+   - 一覧の中から「_note_session_v5」という名前のCookieを探し、その「Value」を教えてください。
+
+2. `XSRF-TOKEN` ヘッダーの値 (またはCookieの`XSRF-TOKEN`の値)
+   - 同様に開発者ツールの「Application」タブの「Cookies」から「XSRF-TOKEN」という名前のCookieを探し、その「Value」を教えてください。
+   - もしくは、「Network」タブでnote.comへのPOSTリクエストを選択し、「Headers」タブで「Request Headers」の中に「X-XSRF-TOKEN」があれば、その値を教えてください。
+
+これらの情報を使ってcurlコマンドを作成・実行し、結果を報告します。」

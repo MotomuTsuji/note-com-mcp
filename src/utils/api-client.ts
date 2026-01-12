@@ -31,14 +31,19 @@ export async function noteApiRequest(
     } else if (requireAuth && Object.keys(authHeaders).length === 0) {
       throw new Error("認証情報が必要です。.envファイルに認証情報を設定してください。");
     } else {
+      // NOTE_ALL_COOKIES を優先的に適用
+      if (env.NOTE_ALL_COOKIES) {
+        headers["Cookie"] = env.NOTE_ALL_COOKIES;
+      }
       Object.assign(headers, authHeaders);
     }
   }
 
   // POST/PUTリクエストの場合、OriginとRefererヘッダーを追加（CSRF対策）
   if (method === "POST" || method === "PUT") {
-    headers["Origin"] = "https://note.com";
-    headers["Referer"] = "https://note.com/";
+    headers["Origin"] = "https://editor.note.com";
+    headers["Referer"] = "https://editor.note.com/";
+    headers["X-Requested-With"] = "XMLHttpRequest";
   }
 
   // customHeadersがある場合は最後に適用（優先）

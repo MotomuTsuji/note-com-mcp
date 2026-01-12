@@ -1301,6 +1301,12 @@ async function startServer(): Promise<void> {
                         const headers = buildCustomHeaders();
                         console.error("🔧 カスタムヘッダー構築完了");
 
+                        console.error("🌐 APIリクエスト開始: /v1/text_notes (新規下書き作成)");
+                        console.error("   Request URL: /v1/text_notes");
+                        console.error("   Request Method: POST");
+                        console.error("   Request Body:", createData);
+                        console.error("   Request Headers:", headers);
+
                         const createResult = await noteApiRequest(
                           "/v1/text_notes",
                           "POST",
@@ -1341,7 +1347,12 @@ async function startServer(): Promise<void> {
                       const headers = buildCustomHeaders();
                       console.error("🔧 更新用ヘッダー構築完了");
 
-                      console.error("🌐 APIリクエスト開始: /v1/text_notes/draft_save");
+                      console.error("🌐 APIリクエスト開始: /v1/text_notes/draft_save (下書き更新)");
+                      console.error(`   Request URL: /v1/text_notes/draft_save?id=${id}&is_temp_saved=true`);
+                      console.error("   Request Method: POST");
+                      console.error("   Request Body:", updateData);
+                      console.error("   Request Headers:", headers);
+
                       const data = await noteApiRequest(
                         `/v1/text_notes/draft_save?id=${id}&is_temp_saved=true`,
                         "POST",
@@ -1397,6 +1408,16 @@ async function startServer(): Promise<void> {
 
                           console.error(`📤 アイキャッチアップロード: ${fileName} (${formData.length} bytes)`);
 
+                          console.error("🌐 APIリクエスト開始: /v1/image_upload/note_eyecatch (アイキャッチアップロード)");
+                          console.error("   Request URL: /v1/image_upload/note_eyecatch");
+                          console.error("   Request Method: POST");
+                          console.error("   Request Body: [multipart/form-data]"); // formDataはバイナリデータなので概要のみ
+                          console.error("   Request Headers:", {
+                            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Referer': editUrl
+                          });
+
                           const uploadResponse = await noteApiRequest(
                             '/v1/image_upload/note_eyecatch',
                             'POST',
@@ -1410,6 +1431,7 @@ async function startServer(): Promise<void> {
                           );
 
                           console.error("✅ アイキャッチアップロードレスポンス:", uploadResponse);
+
 
                           if (uploadResponse.data?.url) {
                             eyecatchUrl = uploadResponse.data.url;
@@ -1459,7 +1481,7 @@ async function startServer(): Promise<void> {
                         console.error(`📤 ${images.length}件の画像をアップロード中...`);
 
                         for (const img of images) {
-                          try {
+                          try { // Presigned URL 取得のtryブロック
                             const imageBuffer = Buffer.from(img.base64, 'base64');
                             const fileName = img.fileName;
                             const mimeType = img.mimeType || 'image/png';
@@ -1475,6 +1497,17 @@ async function startServer(): Promise<void> {
                             presignFormParts.push(Buffer.from(`--${boundary1}--\r\n`));
                             const presignFormData = Buffer.concat(presignFormParts);
 
+                            console.error("🌐 APIリクエスト開始: /v3/images/upload/presigned_post (Presigned URL取得)");
+                            console.error("   Request URL: /v3/images/upload/presigned_post");
+                            console.error("   Request Method: POST");
+                            console.error("   Request Body: [multipart/form-data]");
+                            console.error("   Request Headers:", {
+                              'Content-Type': `multipart/form-data; boundary=${boundary1}`,
+                              'Content-Length': presignFormData.length.toString(),
+                              'X-Requested-With': 'XMLHttpRequest',
+                              'Referer': 'https://editor.note.com/'
+                            });
+
                             const presignResponse = await noteApiRequest(
                               '/v3/images/upload/presigned_post',
                               'POST',
@@ -1488,6 +1521,8 @@ async function startServer(): Promise<void> {
                               }
                             );
 
+                            console.error("✅ Presigned URL取得レスポンス:", presignResponse);
+
                             if (!presignResponse.data?.post) {
                               console.error(`❌ Presigned URL取得失敗: ${fileName}`);
                               continue;
@@ -1495,51 +1530,66 @@ async function startServer(): Promise<void> {
 
                             const { url: finalImageUrl, action: s3Url, post: s3Params } = presignResponse.data;
 
-                            // Step 2: S3にアップロード
-                            const boundary2 = `----WebKitFormBoundary${Math.random().toString(36).substring(2)}`;
-                            const s3FormParts: Buffer[] = [];
+                            // S3アップロードは別のtryブロックで
+                            try { // S3 アップロードのtryブロック
+                                // Step 2: S3にアップロード
+                                const boundary2 = `----WebKitFormBoundary${Math.random().toString(36).substring(2)}`;
+                                const s3FormParts: Buffer[] = [];
 
-                            const paramOrder = ['key', 'acl', 'Expires', 'policy', 'x-amz-credential', 'x-amz-algorithm', 'x-amz-date', 'x-amz-signature'];
-                            for (const key of paramOrder) {
-                              if (s3Params[key]) {
+                                const paramOrder = ['key', 'acl', 'Expires', 'policy', 'x-amz-credential', 'x-amz-algorithm', 'x-amz-date', 'x-amz-signature'];
+                                for (const key of paramOrder) {
+                                  if (s3Params[key]) {
+                                    s3FormParts.push(Buffer.from(
+                                      `--${boundary2}\r\n` +
+                                      `Content-Disposition: form-data; name="${key}"\r\n\r\n` +
+                                      `${s3Params[key]}\r\n`
+                                    ));
+                                  }
+                                }
+
                                 s3FormParts.push(Buffer.from(
                                   `--${boundary2}\r\n` +
-                                  `Content-Disposition: form-data; name="${key}"\r\n\r\n` +
-                                  `${s3Params[key]}\r\n`
+                                  `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
+                                  `Content-Type: ${mimeType}\r\n\r\n`
                                 ));
-                              }
+                                s3FormParts.push(imageBuffer);
+                                s3FormParts.push(Buffer.from('\r\n'));
+                                s3FormParts.push(Buffer.from(`--${boundary2}--\r\n`));
+
+                                const s3FormData = Buffer.concat(s3FormParts);
+
+                                console.error("🌐 S3アップロード開始:", s3Url);
+                                console.error("   Request Method: POST");
+                                console.error("   Request Body: [multipart/form-data]");
+                                console.error("   Request Headers:", {
+                                  'Content-Type': `multipart/form-data; boundary=${boundary2}`,
+                                  'Content-Length': s3FormData.length.toString()
+                                });
+
+                                const s3Response = await fetch(s3Url, {
+                                  method: 'POST',
+                                  headers: {
+                                    'Content-Type': `multipart/form-data; boundary=${boundary2}`,
+                                    'Content-Length': s3FormData.length.toString()
+                                  },
+                                  body: s3FormData
+                                });
+
+                                console.error(`✅ S3アップロードレスポンス: ${s3Response.status} ${s3Response.statusText}`);
+
+                                if (!s3Response.ok && s3Response.status !== 204) {
+                                  console.error(`❌ S3アップロード失敗: ${fileName} (${s3Response.status})`);
+                                  continue;
+                                }
+
+                                uploadedImages.set(fileName, finalImageUrl);
+                                console.error(`✅ 画像アップロード成功: ${fileName} -> ${finalImageUrl}`);
+                            } catch (s3Error: any) {
+                                console.error(`❌ S3アップロードエラー: ${img.fileName}`, s3Error.message);
                             }
 
-                            s3FormParts.push(Buffer.from(
-                              `--${boundary2}\r\n` +
-                              `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
-                              `Content-Type: ${mimeType}\r\n\r\n`
-                            ));
-                            s3FormParts.push(imageBuffer);
-                            s3FormParts.push(Buffer.from('\r\n'));
-                            s3FormParts.push(Buffer.from(`--${boundary2}--\r\n`));
-
-                            const s3FormData = Buffer.concat(s3FormParts);
-
-                            const s3Response = await fetch(s3Url, {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': `multipart/form-data; boundary=${boundary2}`,
-                                'Content-Length': s3FormData.length.toString()
-                              },
-                              body: s3FormData
-                            });
-
-                            if (!s3Response.ok && s3Response.status !== 204) {
-                              console.error(`❌ S3アップロード失敗: ${fileName} (${s3Response.status})`);
-                              continue;
-                            }
-
-                            uploadedImages.set(fileName, finalImageUrl);
-                            console.error(`✅ 画像アップロード成功: ${fileName} -> ${finalImageUrl}`);
-
-                          } catch (e: any) {
-                            console.error(`❌ 画像アップロードエラー: ${img.fileName}`, e.message);
+                          } catch (presignError: any) {
+                            console.error(`❌ Presigned URL取得エラー: ${img.fileName}`, presignError.message);
                           }
                         }
                       }
@@ -1614,6 +1664,12 @@ async function startServer(): Promise<void> {
 
                         const headers = buildCustomHeaders();
 
+                        console.error("🌐 APIリクエスト開始: /v1/text_notes (画像付き新規下書き作成)");
+                        console.error("   Request URL: /v1/text_notes");
+                        console.error("   Request Method: POST");
+                        console.error("   Request Body:", createData);
+                        console.error("   Request Headers:", headers);
+
                         const createResult = await noteApiRequest(
                           "/v1/text_notes",
                           "POST",
@@ -1625,7 +1681,7 @@ async function startServer(): Promise<void> {
                         if (createResult.data?.id) {
                           id = createResult.data.id.toString();
                           const key = createResult.data.key || `n${id}`;
-                          console.error(`✅ 下書き作成成功: ID=${id}, key=${key}`);
+                          console.error(`✅ 画像付き新規下書き作成成功: ID=${id}, key=${key}`);
                         } else {
                           throw new Error("下書きの作成に失敗しました");
                         }
@@ -1666,6 +1722,12 @@ async function startServer(): Promise<void> {
                       };
 
                       const headers = buildCustomHeaders();
+
+                      console.error("🌐 APIリクエスト開始: /v1/text_notes/draft_save (画像付き下書き更新)");
+                      console.error(`   Request URL: /v1/text_notes/draft_save?id=${id}&is_temp_saved=true`);
+                      console.error("   Request Method: POST");
+                      console.error("   Request Body:", updateData);
+                      console.error("   Request Headers:", headers);
 
                       const data = await noteApiRequest(
                         `/v1/text_notes/draft_save?id=${id}&is_temp_saved=true`,
@@ -1720,6 +1782,16 @@ async function startServer(): Promise<void> {
 
                           console.error(`📤 アイキャッチアップロード: ${fileName} (${formData.length} bytes)`);
 
+                          console.error("🌐 APIリクエスト開始: /v1/image_upload/note_eyecatch (画像付きアイキャッチアップロード)");
+                          console.error("   Request URL: /v1/image_upload/note_eyecatch");
+                          console.error("   Request Method: POST");
+                          console.error("   Request Body: [multipart/form-data]"); // formDataはバイナリデータなので概要のみ
+                          console.error("   Request Headers:", {
+                            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Referer': editUrl
+                          });
+
                           const uploadResponse = await noteApiRequest(
                             '/v1/image_upload/note_eyecatch',
                             'POST',
@@ -1732,7 +1804,7 @@ async function startServer(): Promise<void> {
                             }
                           );
 
-                          console.error("✅ アイキャッチアップロードレスポンス:", uploadResponse);
+                          console.error("✅ 画像付きアイキャッチアップロードレスポンス:", uploadResponse);
 
                           if (uploadResponse.data?.url) {
                             eyecatchUrl = uploadResponse.data.url;

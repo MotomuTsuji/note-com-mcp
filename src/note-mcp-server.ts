@@ -33,6 +33,7 @@ const API_BASE_URL = "https://note.com/api";
 // note API認証情報（環境変数から取得）
 const NOTE_SESSION_V5 = process.env.NOTE_SESSION_V5 || "";
 const NOTE_XSRF_TOKEN = process.env.NOTE_XSRF_TOKEN || "";
+const NOTE_ALL_COOKIES = process.env.NOTE_ALL_COOKIES || "";
 const NOTE_EMAIL = process.env.NOTE_EMAIL || "";
 const NOTE_PASSWORD = process.env.NOTE_PASSWORD || "";
 const NOTE_USER_ID = process.env.NOTE_USER_ID || "";
@@ -56,8 +57,8 @@ let localActiveXsrfToken: string | null = null;
 
 // 認証状態
 const AUTH_STATUS = {
-  hasCookie: NOTE_SESSION_V5 !== "" || NOTE_XSRF_TOKEN !== "",
-  anyAuth: NOTE_SESSION_V5 !== "" || NOTE_XSRF_TOKEN !== "" || (NOTE_EMAIL !== "" && NOTE_PASSWORD !== "")
+  hasCookie: NOTE_SESSION_V5 !== "" || NOTE_XSRF_TOKEN !== "" || NOTE_ALL_COOKIES !== "",
+  anyAuth: NOTE_SESSION_V5 !== "" || NOTE_XSRF_TOKEN !== "" || NOTE_ALL_COOKIES !== "" || (NOTE_EMAIL !== "" && NOTE_PASSWORD !== "")
 };
 
 // デバッグログ
@@ -446,13 +447,18 @@ async function noteApiRequest(path: string, method: string = "GET", body: any = 
   // 認証設定 - 環境変数のCookieを優先使用（現在多くのAPIがこれで正常動作している）
   if (AUTH_STATUS.hasCookie) {
     // 従来のCookieベースの認証を優先使用
-    const cookies = [];
-    if (NOTE_SESSION_V5) {
-      cookies.push(`_note_session_v5=${NOTE_SESSION_V5}`);
-      if (DEBUG) console.error("Using session cookie from .env file");
-    }
-    if (cookies.length > 0) {
-      headers["Cookie"] = cookies.join("; ");
+    if (NOTE_ALL_COOKIES) {
+      headers["Cookie"] = NOTE_ALL_COOKIES;
+      if (DEBUG) console.error("Using all cookies from .env file");
+    } else {
+      const cookies = [];
+      if (NOTE_SESSION_V5) {
+        cookies.push(`_note_session_v5=${NOTE_SESSION_V5}`);
+        if (DEBUG) console.error("Using session cookie from .env file");
+      }
+      if (cookies.length > 0) {
+        headers["Cookie"] = cookies.join("; ");
+      }
     }
   } else if (localActiveSessionCookie) {
     // 動的に取得したセッションCookieを使用
@@ -478,6 +484,13 @@ async function noteApiRequest(path: string, method: string = "GET", body: any = 
   } else if (NOTE_XSRF_TOKEN) {
     // 従来のXSRFトークン設定（互換性のために維持）
     headers["X-XSRF-TOKEN"] = NOTE_XSRF_TOKEN;
+  }
+
+  // POST/PUTリクエストの場合、OriginとRefererヘッダーを追加（CSRF対策）
+  if (method === "POST" || method === "PUT") {
+    headers["Origin"] = "https://editor.note.com";
+    headers["Referer"] = "https://editor.note.com/";
+    headers["X-Requested-With"] = "XMLHttpRequest";
   }
 
   const options: any = {
@@ -1226,39 +1239,65 @@ server.tool(
       const htmlBody = convertMarkdownToNoteHtml(body || "");
       console.error("✅ HTML変換完了:", { originalLength: body?.length, htmlLength: htmlBody.length });
 
-      // リクエスト内容をログに出力
-      console.error("下書き保存リクエスト内容:");
+      // 新規作成の場合、まず空の下書きを作成してIDを取得
+      if (!id) {
+        console.error("新規下書きを作成します...");
+        try {
+          // 空の下書き作成用データ
+          const createData = {
+            body: "<p></p>",
+            body_length: 0,
+            name: title || "無題",
+            index: false,
+            is_lead_form: false
+          };
 
-      // 試行1: 最新のAPI形式で試行
+          // v1のAPIを使用して空の下書きを作成
+          const createResult = await noteApiRequest(
+            "/v1/text_notes",
+            "POST",
+            createData,
+            true
+          );
+
+          if (createResult.data?.id) {
+            id = createResult.data.id.toString();
+            console.error(`下書き作成成功: ID=${id}`);
+          } else {
+            console.error(`下書き作成失敗: レスポンスにIDが含まれていません - ${JSON.stringify(createResult)}`);
+            throw new Error("下書きの新規作成に失敗しました (ID取得エラー)");
+          }
+        } catch (createError) {
+          console.error(`下書き作成APIエラー: ${createError}`);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `下書きの新規作成に失敗しました: ${createError}`
+              }
+            ],
+            isError: true
+          };
+        }
+      }
+
+      // 下書きを更新
+      console.error(`下書きを更新します (ID: ${id})`);
       try {
-        console.error("試行1: 最新のAPI形式");
-        // v3のAPI形式に合わせて修正
-        const postData1 = {
-          title: title,           // タイトル
-          body: htmlBody,         // HTML変換済み本文
-          status: "draft",       // 下書きステータス
-          tags: tags || [],      // タグ配列
-          publish_at: null,      // 公開日時（下書きはヌル）
-          eyecatch_image: null,  // アイキャッチ画像
-          price: 0,              // 価格（無料）
-          is_magazine_note: false // マガジン記事かどうか
+        const updateData = {
+          body: htmlBody,
+          body_length: htmlBody.length,
+          name: title || "無題",
+          index: false,
+          is_lead_form: false
         };
 
-        console.error(`リクエスト内容: ${JSON.stringify(postData1, null, 2)}`);
+        const endpoint = `/v1/text_notes/draft_save?id=${id}&is_temp_saved=true`;
+        const data = await noteApiRequest(endpoint, "POST", updateData, true);
+        console.error(`更新成功: ${JSON.stringify(data, null, 2)}`);
 
-        // 最新のAPIエンドポイントを使用する
-        // v3のAPIを使用して下書きを保存
-        let endpoint = "";
-        if (id) {
-          // 既存記事の編集
-          endpoint = `/v3/notes/${id}/draft`;
-        } else {
-          // 新規下書きの作成
-          endpoint = `/v3/notes/draft`;
-        }
-
-        const data = await noteApiRequest(endpoint, "POST", postData1, true);
-        console.error(`成功: ${JSON.stringify(data, null, 2)}`);
+        // noteKeyの取得（レスポンスまたはIDから生成）
+        const noteKey = data.data?.key || data.data?.note?.key || (id ? `n${id}` : "");
 
         return {
           content: [
@@ -1266,60 +1305,26 @@ server.tool(
               type: "text",
               text: JSON.stringify({
                 success: true,
-                data: data,
-                message: "記事を下書き保存しました（試行1）"
+                message: "記事を下書き保存しました",
+                noteId: id,
+                noteKey: noteKey,
+                editUrl: `https://editor.note.com/notes/${noteKey}/edit/`,
+                data: data
               }, null, 2)
             }
           ]
         };
-      } catch (error1) {
-        console.error(`試行1でエラー: ${error1}`);
-
-        // 試行2: 旧APIエンドポイント
-        try {
-          console.error("試行2: 旧APIエンドポイント");
-          const postData2 = {
-            title,
-            body: htmlBody,  // HTML変換済み本文
-            tags: tags || [],
-          };
-
-          console.error(`リクエスト内容: ${JSON.stringify(postData2, null, 2)}`);
-
-          // v1形式でもユーザーIDを指定
-          const endpoint = id
-            ? `/v1/text_notes/draft_save?id=${id}&user_id=${NOTE_USER_ID}`
-            : `/v1/text_notes/draft_save?user_id=${NOTE_USER_ID}`;
-
-          const data = await noteApiRequest(endpoint, "POST", postData2, true);
-          console.error(`成功: ${JSON.stringify(data, null, 2)}`);
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  success: true,
-                  data: data,
-                  message: "記事を下書き保存しました（試行2）"
-                }, null, 2)
-              }
-            ]
-          };
-        } catch (error2) {
-          // どちらの試行も失敗した場合
-          console.error(`試行2でエラー: ${error2}`);
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `記事の投稿に失敗しました:\n試行1エラー: ${error1}\n試行2エラー: ${error2}\n\nセッションの有効期限が切れている可能性があります。.envファイルのCookie情報を更新してください。`
-              }
-            ],
-            isError: true
-          };
-        }
+      } catch (updateError) {
+        console.error(`下書き更新エラー: ${updateError}`);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `記事の更新に失敗しました: ${updateError}\nID: ${id}`
+            }
+          ],
+          isError: true
+        };
       }
     } catch (error) {
       console.error(`下書き保存処理全体でエラー: ${error}`);

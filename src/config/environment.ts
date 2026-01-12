@@ -14,6 +14,7 @@ export interface Environment {
   DEBUG: boolean;
   NOTE_SESSION_V5: string;
   NOTE_XSRF_TOKEN: string;
+  NOTE_ALL_COOKIES: string;
   NOTE_GQL_AUTH_TOKEN: string;
   NOTE_EMAIL: string;
   NOTE_PASSWORD: string;
@@ -26,6 +27,7 @@ export const env: Environment = {
   DEBUG: process.env.DEBUG === "true",
   NOTE_SESSION_V5: process.env.NOTE_SESSION_V5 || "",
   NOTE_XSRF_TOKEN: process.env.NOTE_XSRF_TOKEN || "",
+  NOTE_ALL_COOKIES: process.env.NOTE_ALL_COOKIES || "",
   NOTE_GQL_AUTH_TOKEN: process.env.NOTE_GQL_AUTH_TOKEN || "",
   NOTE_EMAIL: process.env.NOTE_EMAIL || "",
   NOTE_PASSWORD: process.env.NOTE_PASSWORD || "",
@@ -36,9 +38,9 @@ export const env: Environment = {
 
 // 認証状態の判定
 export const authStatus = {
-  hasCookie: env.NOTE_SESSION_V5 !== "" || env.NOTE_XSRF_TOKEN !== "",
+  hasCookie: env.NOTE_SESSION_V5 !== "" || env.NOTE_XSRF_TOKEN !== "" || env.NOTE_ALL_COOKIES !== "",
   hasGqlToken: env.NOTE_GQL_AUTH_TOKEN !== "",
-  anyAuth: env.NOTE_SESSION_V5 !== "" || env.NOTE_XSRF_TOKEN !== "" || env.NOTE_GQL_AUTH_TOKEN !== "" || (env.NOTE_EMAIL !== "" && env.NOTE_PASSWORD !== "")
+  anyAuth: env.NOTE_SESSION_V5 !== "" || env.NOTE_XSRF_TOKEN !== "" || env.NOTE_ALL_COOKIES !== "" || env.NOTE_GQL_AUTH_TOKEN !== "" || (env.NOTE_EMAIL !== "" && env.NOTE_PASSWORD !== "")
 };
 
 // デバッグログ

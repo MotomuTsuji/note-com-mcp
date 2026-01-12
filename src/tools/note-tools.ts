@@ -128,15 +128,10 @@ export function registerNoteTools(server: McpServer) {
           return createAuthErrorResponse();
         }
 
-        // 下書き保存用のカスタムヘッダーを構築
-        const buildCustomHeaders = () => {
-          const headers = buildAuthHeaders();
-          headers["content-type"] = "application/json";
-          headers["origin"] = "https://editor.note.com";
-          headers["referer"] = "https://editor.note.com/";
-          headers["x-requested-with"] = "XMLHttpRequest";
-          return headers;
-        };
+        // MarkdownをHTMLに変換
+        console.error("🔄 MarkdownをHTMLに変換中...");
+        const htmlBody = convertMarkdownToNoteHtml(body || "");
+        console.error("✅ HTML変換完了");
 
         // 新規作成の場合、まず空の下書きを作成
         if (!id) {
@@ -150,20 +145,16 @@ export function registerNoteTools(server: McpServer) {
             is_lead_form: false
           };
 
-          const headers = buildCustomHeaders();
-
           const createResult = await noteApiRequest(
             "/v1/text_notes",
             "POST",
             createData,
-            true,
-            headers
+            true
           );
 
           if (createResult.data?.id) {
             id = createResult.data.id.toString();
-            const key = createResult.data.key || `n${id}`;
-            console.error(`下書き作成成功: ID=${id}, key=${key}`);
+            console.error(`下書き作成成功: ID=${id}`);
           } else {
             throw new Error("下書きの作成に失敗しました");
           }
@@ -173,24 +164,21 @@ export function registerNoteTools(server: McpServer) {
         console.error(`下書きを更新します (ID: ${id})`);
 
         const updateData = {
-          body: body || "",
-          body_length: (body || "").length,
+          body: htmlBody,
+          body_length: htmlBody.length,
           name: title || "無題",
           index: false,
           is_lead_form: false
         };
 
-        const headers = buildCustomHeaders();
-
         const data = await noteApiRequest(
           `/v1/text_notes/draft_save?id=${id}&is_temp_saved=true`,
           "POST",
           updateData,
-          true,
-          headers
+          true
         );
 
-        const noteKey = `n${id}`;
+        const noteKey = data.data?.key || data.data?.note?.key || `n${id}`;
         return createSuccessResponse({
           success: true,
           message: "記事を下書き保存しました",
@@ -228,17 +216,9 @@ export function registerNoteTools(server: McpServer) {
           return createAuthErrorResponse();
         }
 
-        const buildCustomHeaders = () => {
-          const headers = buildAuthHeaders();
-          headers["content-type"] = "application/json";
-          headers["origin"] = "https://editor.note.com";
-          headers["referer"] = "https://editor.note.com/";
-          headers["x-requested-with"] = "XMLHttpRequest";
-          return headers;
-        };
-
         // 画像をアップロードしてURLを取得
         const uploadedImages = new Map<string, string>();
+        // ... (画像アップロードロジックは維持) ...
 
         if (images && images.length > 0) {
           console.error(`${images.length}件の画像をアップロード中...`);
@@ -402,20 +382,16 @@ export function registerNoteTools(server: McpServer) {
             is_lead_form: false
           };
 
-          const headers = buildCustomHeaders();
-
           const createResult = await noteApiRequest(
             "/v1/text_notes",
             "POST",
             createData,
-            true,
-            headers
+            true
           );
 
           if (createResult.data?.id) {
             id = createResult.data.id.toString();
-            const key = createResult.data.key || `n${id}`;
-            console.error(`下書き作成成功: ID=${id}, key=${key}`);
+            console.error(`下書き作成成功: ID=${id}`);
           } else {
             throw new Error("下書きの作成に失敗しました");
           }
@@ -454,17 +430,14 @@ export function registerNoteTools(server: McpServer) {
           is_lead_form: false
         };
 
-        const headers = buildCustomHeaders();
-
         const data = await noteApiRequest(
           `/v1/text_notes/draft_save?id=${id}&is_temp_saved=true`,
           "POST",
           updateData,
-          true,
-          headers
+          true
         );
 
-        const noteKey = `n${id}`;
+        const noteKey = data.data?.key || data.data?.note?.key || `n${id}`;
         return createSuccessResponse({
           success: true,
           message: "画像付き記事を下書き保存しました",
